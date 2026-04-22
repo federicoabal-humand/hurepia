@@ -1,52 +1,136 @@
 "use client";
 
-import { useState } from "react";
-import { MessageCircle, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, AlertTriangle } from "lucide-react";
+import * as Tabs from "@radix-ui/react-tabs";
+import { cn } from "@/lib/utils";
+import { t, type Lang } from "@/lib/i18n";
+import { ReportTab } from "./report-tab";
+import { MyReportsTab } from "./my-reports-tab";
 
 export function HuReportWidget() {
   const [isOpen, setIsOpen] = useState(false);
+  const [lang, setLang] = useState<Lang>("es");
+  const [activeTab, setActiveTab] = useState("report");
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch
+  useEffect(() => setMounted(true), []);
+
+  const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
+
+  if (!mounted) return null;
 
   return (
     <>
-      {/* Floating Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition-colors flex items-center justify-center z-40"
-        aria-label="Report bug"
-      >
-        {isOpen ? (
-          <X className="w-6 h-6" />
-        ) : (
-          <MessageCircle className="w-6 h-6" />
-        )}
-      </button>
+      {/* ─── Trigger button ──────────────────────────────────────────────── */}
+      <div className="fixed top-6 right-6 z-50">
+        <button
+          onClick={() => setIsOpen((v) => !v)}
+          aria-label={t("trigger.label", lang)}
+          className={cn(
+            "relative flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg transition-all duration-200",
+            "bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm",
+            isOpen && "bg-teal-700"
+          )}
+        >
+          {/* Pulse ring */}
+          {!isOpen && (
+            <span className="absolute inset-0 rounded-full bg-teal-400 opacity-50 animate-ping pointer-events-none" />
+          )}
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span>{t("trigger.label", lang)}</span>
+        </button>
+      </div>
 
-      {/* Widget Panel */}
+      {/* ─── Backdrop ────────────────────────────────────────────────────── */}
       {isOpen && (
-        <div className="fixed bottom-24 right-6 w-96 bg-white dark:bg-slate-900 rounded-lg shadow-2xl z-40 p-6">
-          <h2 className="text-lg font-semibold mb-4">Report a Bug</h2>
-          <p className="text-sm text-text-secondary mb-4">
-            Help us improve by reporting bugs you encounter.
-          </p>
-          <form className="space-y-4">
-            <input
-              type="text"
-              placeholder="What's the issue?"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-md text-sm"
-            />
-            <textarea
-              placeholder="Describe the bug..."
-              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 rounded-md text-sm h-24"
-            />
-            <button
-              type="submit"
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-            >
-              Submit Report
-            </button>
-          </form>
-        </div>
+        <div
+          className="fixed inset-0 z-40 bg-black/20 lg:bg-transparent"
+          onClick={() => setIsOpen(false)}
+        />
       )}
+
+      {/* ─── Widget panel ────────────────────────────────────────────────── */}
+      <div
+        className={cn(
+          "fixed top-0 right-0 z-50 h-full w-full max-w-[480px]",
+          "bg-white shadow-2xl flex flex-col",
+          "transition-transform duration-300 ease-in-out",
+          isOpen ? "translate-x-0" : "translate-x-full"
+        )}
+        aria-hidden={!isOpen}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-teal-600" />
+            <h2 className="text-base font-semibold text-gray-900">
+              {t("header.title", lang)}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* EN / ES toggle */}
+            <button
+              onClick={toggleLang}
+              className="px-2.5 py-1 text-xs font-semibold rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              {t("lang.toggle", lang)}
+            </button>
+            {/* Close */}
+            <button
+              onClick={() => setIsOpen(false)}
+              aria-label={t("header.close", lang)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <Tabs.Root
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex flex-col flex-1 min-h-0"
+        >
+          {/* Tab list */}
+          <Tabs.List className="flex border-b border-gray-100 px-5 flex-shrink-0">
+            {(["report", "myReports"] as const).map((tab) => (
+              <Tabs.Trigger
+                key={tab}
+                value={tab}
+                className={cn(
+                  "px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500",
+                  activeTab === tab
+                    ? "border-teal-600 text-teal-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                )}
+              >
+                {tab === "report"
+                  ? t("tab.report", lang)
+                  : t("tab.myReports", lang)}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+
+          {/* Tab panels */}
+          <Tabs.Content
+            value="report"
+            className="flex-1 overflow-y-auto px-5 py-5 focus:outline-none"
+          >
+            <ReportTab lang={lang} />
+          </Tabs.Content>
+
+          <Tabs.Content
+            value="myReports"
+            className="flex-1 overflow-y-auto px-5 py-5 focus:outline-none"
+          >
+            <MyReportsTab lang={lang} />
+          </Tabs.Content>
+        </Tabs.Root>
+      </div>
     </>
   );
 }
