@@ -99,7 +99,7 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
-        <div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -138,7 +138,7 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
               className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
             >
               {/* Ticket number */}
-              <span className="text-xs font-semibold text-teal-600 whitespace-nowrap">
+              <span className="text-xs font-semibold text-primary whitespace-nowrap">
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
 
@@ -222,7 +222,7 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
                     href={ticket.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-teal-600 underline break-all"
+                    className="text-xs text-primary underline break-all"
                   >
                     {ticket.url}
                   </a>
@@ -240,7 +240,7 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
                       value={infoText}
                       onChange={(e) => setInfoText(e.target.value)}
                       placeholder={t("reports.addInfo.placeholder", lang)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                     />
                     <div className="flex gap-2">
                       <button
