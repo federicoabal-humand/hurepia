@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -11,12 +11,12 @@ import {
   Settings,
   RefreshCw,
   HelpCircle,
+  RefreshCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
 import type { FriendlyStatus, Classification } from "@/lib/mappings";
 
-// Ticket shape returned by /api/reports — no jiraKey, has commentRef
 interface TicketResponse {
   id: string;
   ticketNumber: number;
@@ -37,7 +37,8 @@ interface TicketResponse {
 
 interface MyReportsTabProps {
   lang: Lang;
-  communityId?: string;
+  communityName: string;
+  isWidgetOpen: boolean;
 }
 
 const STATUS_STYLES: Record<FriendlyStatus, string> = {
@@ -55,29 +56,87 @@ const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
   needs_more_info: HelpCircle,
 };
 
-export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
+const POLL_INTERVAL_MS = 30_000;
+
+export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTabProps) {
   const [tickets, setTickets] = useState<TicketResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [addInfoId, setAddInfoId] = useState<string | null>(null);
   const [infoText, setInfoText] = useState("");
   const [sending, setSending] = useState(false);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const fetchTickets = async () => {
-      setLoading(true);
-      try {
-        const params = communityId ? `?communityName=${encodeURIComponent(communityId)}` : "";
-        const res = await fetch(`/api/reports${params}`);
-        const data = await res.json();
-        setTickets(data);
-      } finally {
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
+
+  const fetchTickets = useCallback(async (isBackground = false) => {
+    if (!mountedRef.current) return;
+    if (isBackground) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const params = communityName
+        ? `?communityName=${encodeURIComponent(communityName)}`
+        : "";
+      const res = await fetch(`/api/reports${params}`);
+      const data: TicketResponse[] = await res.json();
+      if (mountedRef.current) setTickets(data);
+    } catch {
+      // keep current tickets on error
+    } finally {
+      if (mountedRef.current) {
         setLoading(false);
+        setRefreshing(false);
       }
+    }
+  }, [communityName]);
+
+  // Start/stop polling based on widget open state and page visibility
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+    pollingRef.current = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchTickets(true);
+      }
+    }, POLL_INTERVAL_MS);
+  }, [fetchTickets]);
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  // Initial fetch + setup polling lifecycle
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchTickets(false);
+    startPolling();
+
+    // Re-fetch immediately when tab becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") fetchTickets(true);
     };
-    fetchTickets();
-  }, [communityId]);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      mountedRef.current = false;
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchTickets, startPolling, stopPolling]);
+
+  // Pause polling when widget is closed; resume when reopened
+  useEffect(() => {
+    if (isWidgetOpen) {
+      fetchTickets(true);
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  }, [isWidgetOpen, fetchTickets, startPolling, stopPolling]);
 
   const handleAddInfo = async (ticketId: string, commentRef: string) => {
     if (!infoText.trim()) return;
@@ -117,6 +176,14 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
 
   return (
     <div className="space-y-2">
+      {/* Refresh indicator */}
+      {refreshing && (
+        <div className="flex items-center gap-1.5 text-xs text-gray-400 pb-1">
+          <RefreshCcw className="w-3 h-3 animate-spin" />
+          <span>{lang === "es" ? "Actualizando..." : "Refreshing..."}</span>
+        </div>
+      )}
+
       {tickets.map((ticket) => {
         const isExpanded = expandedId === ticket.id;
         const isAddingInfo = addInfoId === ticket.id;
@@ -125,54 +192,31 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
         const ClassIcon = CLASSIFICATION_ICON[cls as Classification] ?? Bug;
 
         return (
-          <div
-            key={ticket.id}
-            className="border border-gray-200 rounded-xl overflow-hidden"
-          >
+          <div key={ticket.id} className="border border-gray-200 rounded-xl overflow-hidden">
             {/* Row */}
             <button
               type="button"
-              onClick={() =>
-                setExpandedId(isExpanded ? null : ticket.id)
-              }
+              onClick={() => setExpandedId(isExpanded ? null : ticket.id)}
               className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
             >
-              {/* Ticket number */}
               <span className="text-xs font-semibold text-primary whitespace-nowrap">
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
-
-              {/* Summary */}
-              <span className="flex-1 text-sm text-gray-800 truncate">
-                {ticket.summary}
-              </span>
-
-              {/* Status badge */}
-              <span
-                className={cn(
-                  "flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium",
-                  STATUS_STYLES[ticket.status]
-                )}
-              >
+              <span className="flex-1 text-sm text-gray-800 truncate">{ticket.summary}</span>
+              <span className={cn("flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium", STATUS_STYLES[ticket.status])}>
                 {t(`status.${ticket.status}` as Parameters<typeof t>[0], lang)}
               </span>
-
-              {/* Chevron */}
-              {isExpanded ? (
-                <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              )}
+              {isExpanded
+                ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />}
             </button>
 
             {/* Expanded detail */}
             {isExpanded && (
               <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-4">
-                {/* Meta row */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                   <span>
-                    <span className="font-medium">{t("reports.date", lang)}:</span>{" "}
-                    {ticket.date}
+                    <span className="font-medium">{t("reports.date", lang)}:</span>{" "}{ticket.date}
                   </span>
                   <span>
                     <span className="font-medium">{t("reports.module", lang)}:</span>{" "}
@@ -184,46 +228,27 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
                   </span>
                 </div>
 
-                {/* Platforms */}
                 <div className="flex flex-wrap gap-1">
                   {(ticket.platforms ?? []).map((p) => (
-                    <span
-                      key={p}
-                      className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs"
-                    >
+                    <span key={p} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
                       {t(`platform.${p}` as Parameters<typeof t>[0], lang)}
                     </span>
                   ))}
                 </div>
 
-                {/* Description */}
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  {ticket.description}
-                </p>
+                <p className="text-sm text-gray-700 leading-relaxed">{ticket.description}</p>
 
-                {/* Evidence thumbnails */}
                 {(ticket.evidenceUrls ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {(ticket.evidenceUrls ?? []).map((url, i) => (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={i}
-                        src={url}
-                        alt={`Evidence ${i + 1}`}
-                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
-                      />
+                      <img key={i} src={url} alt={`Evidence ${i + 1}`} className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
                     ))}
                   </div>
                 )}
 
-                {/* URL */}
                 {ticket.url && (
-                  <a
-                    href={ticket.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-primary underline break-all"
-                  >
+                  <a href={ticket.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline break-all">
                     {ticket.url}
                   </a>
                 )}
@@ -249,19 +274,14 @@ export function MyReportsTab({ lang, communityId }: MyReportsTabProps) {
                         disabled={!infoText.trim() || sending}
                         className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors"
                       >
-                        {sending ? (
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <Send className="w-3 h-3" />
-                        )}
+                        {sending
+                          ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          : <Send className="w-3 h-3" />}
                         {t("reports.addInfo.submit", lang)}
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setAddInfoId(null);
-                          setInfoText("");
-                        }}
+                        onClick={() => { setAddInfoId(null); setInfoText(""); }}
                         className="px-3 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
                       >
                         {t("reports.addInfo.cancel", lang)}

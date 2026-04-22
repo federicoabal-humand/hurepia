@@ -154,7 +154,7 @@ export async function searchIssuesForCommunity(
   _communityName: string
 ): Promise<JiraIssueSummary[]> {
   const jql = `project = ${JIRA.PROJECT_KEY} ORDER BY created DESC`;
-  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
+  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP, "statusCategory"].join(",");
   // NOTE: /rest/api/3/search is deprecated — use /rest/api/3/search/jql
   const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=20&fields=${fields}`;
 
@@ -170,23 +170,30 @@ export async function searchIssuesForCommunity(
         key: string;
         fields: {
           summary: string;
-          status: { name: string };
+          status: { name: string; statusCategory?: { key?: string } };
           created: string;
           [key: string]: unknown;
         };
       }) => {
         // MINI_APP is a multicheckboxes array — extract first value label
         const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
-        const module =
+        const moduleSlug =
           Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
             ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
             : "general";
 
+        const statusName = issue.fields.status.name;
+        const categoryKey = issue.fields.status.statusCategory?.key;
+        const friendlyStatus = mapJiraStatusToFriendly(statusName, categoryKey);
+
+        // Debug log — visible in Vercel function logs
+        console.log(`[jira] ${issue.key}: status="${statusName}" cat="${categoryKey}" → ${friendlyStatus}`);
+
         return {
           key:       issue.key,
           summary:   issue.fields.summary,
-          module,
-          status:    mapJiraStatusToFriendly(issue.fields.status.name),
+          module:    moduleSlug,
+          status:    friendlyStatus,
           createdAt: issue.fields.created,
         };
       }

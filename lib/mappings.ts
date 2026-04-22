@@ -79,34 +79,55 @@ export type FriendlyStatus =
   | "resolved";
 
 /**
- * Maps Jira status names (Spanish or English) to user-facing friendly statuses.
- * Handles both Jira Cloud default English names and Humand's Spanish translations.
+ * Maps Jira status to a user-facing friendly status.
+ *
+ * Strategy (in priority order):
+ *   1. statusCategoryKey  — always reliable ("new" | "indeterminate" | "done")
+ *   2. statusName substring — fallback for when category isn't passed
+ *
+ * Real HUREP statuses observed:
+ *   "Tareas por hacer"  → new         → reported
+ *   "En revisión"       → indeterminate → under_review
+ *   "Finalizada"        → done        → resolved
  */
-export function mapJiraStatusToFriendly(jiraStatus: string): FriendlyStatus {
-  const s = jiraStatus.toLowerCase();
+export function mapJiraStatusToFriendly(
+  statusName: string,
+  statusCategoryKey?: string
+): FriendlyStatus {
+  // ── 1. Category key is the most reliable signal ────────────────────────────
+  if (statusCategoryKey === "done") return "resolved";
+  if (statusCategoryKey === "indeterminate") {
+    const s = statusName.toLowerCase();
+    if (
+      s.includes("review") || s.includes("revisión") || s.includes("revision") ||
+      s.includes("análisis") || s.includes("analisis") || s.includes("analysis")
+    ) return "under_review";
+    return "developing_fix";
+  }
+  // statusCategoryKey === "new" falls through to default "reported"
 
-  // Resolved / Done
+  // ── 2. Fallback by name (backward compat / direct callers) ─────────────────
+  const s = statusName.toLowerCase();
+
   if (
     s.includes("done") || s.includes("closed") || s.includes("resolved") ||
     s.includes("hecho") || s.includes("resuelto") || s.includes("cerrado") ||
-    s.includes("completado")
+    s.includes("completado") || s.includes("finalizada") || s.includes("finalizado") ||
+    s.includes("listo")
   ) return "resolved";
 
-  // In Progress / Developing
   if (
     s.includes("progress") || s.includes("development") || s.includes("developing") ||
     s.includes("progreso") || s.includes("desarrollo") || s.includes("desarrollando") ||
     s.includes("en curso")
   ) return "developing_fix";
 
-  // In Review / Analysis
   if (
     s.includes("review") || s.includes("analysis") || s.includes("testing") ||
     s.includes("revisión") || s.includes("revision") || s.includes("análisis") ||
     s.includes("analisis") || s.includes("qa")
   ) return "under_review";
 
-  // Default: reported / to-do
   return "reported";
 }
 

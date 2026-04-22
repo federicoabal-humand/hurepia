@@ -2,7 +2,7 @@
  * lib/llm.ts
  * Gemini-powered classification for HuReport AI.
  *
- * Model: gemini-2.0-flash-exp (fast, cheap, great for classification)
+ * Model: gemini-2.5-flash
  * Env: GEMINI_API_KEY
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -18,26 +18,37 @@ export interface ChatTurn {
 export interface ClassifyInput {
   language: "es" | "en";
   module: string;
+  moduleDisplayName: string;
+  moduleDocs?: string;
+  moduleNotionUrl?: string;
   platforms: string[];
-  communityName?: string;
+  communityName: string;
   whatHappened: string;
-  whatExpected?: string;
+  whatExpected: string;
   isBlocking: boolean;
   usersAffected: "1" | "many";
-  history?: ChatTurn[];
+  history: ChatTurn[];
+  /** How many clarifying questions Gemini has already asked. Max allowed: 1. */
+  askCount: number;
 }
 
 export interface ClassifyResult {
   /** "ask" → one follow-up question before classification (max once per session) */
   action: "ask" | "classify";
-  /** Only when action==="ask" */
+  /** Only when action === "ask" */
   question?: string;
-  /** Only when action==="classify" */
+  /** Only when action === "classify" */
   classification?: Classification;
+  /** 1-sentence summary suitable for a Jira ticket title */
+  summary?: string;
+  /** 2–4 sentences explanation for the admin */
   explanation?: string;
-  fixSteps?: string[];   // config_error / cache_browser
-  questions?: string[];  // needs_more_info — specific questions to answer
-  docUrl?: string;       // expected_behavior
+  /** Notion / help-center URL when relevant */
+  help_center_link?: string;
+  /** Routing hint for the frontend */
+  next_action?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
+  /** 3–5 technical keywords from the issue (for duplicate detection) */
+  keywords?: string[];
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
@@ -45,79 +56,83 @@ export interface ClassifyResult {
 function buildPrompt(input: ClassifyInput): string {
   const lang = input.language === "es" ? "Spanish" : "English";
   const hasHistory = !!input.history?.length;
+  const forceClassify = input.askCount >= 1 || hasHistory;
 
   const historyBlock = hasHistory
-    ? `\nConversation so far:\n${input.history!
+    ? `\nConversation so far:\n${input.history
         .map((h) => `${h.role === "user" ? "Admin" : "AI"}: ${h.content}`)
         .join("\n")}\n`
     : "";
 
-  return `You are a technical support analyst for Humand — an HR SaaS platform used across Latin America.
+  const docsBlock = input.moduleDocs
+    ? `\n=== MODULE DOCUMENTATION (source of truth) ===\n${input.moduleDocs}\n\nDoc URL: ${input.moduleNotionUrl ?? "N/A"}\n`
+    : "\n(No specific documentation available for this module.)\n";
 
-Analyze the following bug report from an admin and respond in ${lang}.
+  const instructions = forceClassify
+    ? `You have already asked ${input.askCount} clarifying question(s). You MUST now respond with action="classify". DO NOT ask another question.`
+    : `If you need ONE specific piece of technical information that would change your classification, respond with action="ask" and a single brief question.
+Otherwise (or if you have enough context), respond with action="classify".
+NEVER ask about: community, module, platform, users affected, or blocking status — those are already provided above.`;
 
-=== REPORT ===
-Module: ${input.module}
-Platform(s): ${input.platforms.join(", ") || "not specified"}
+  return `You are the bug triage assistant for Humand — an HR SaaS platform used across Latin America.
+Analyze the following report from an admin and respond in ${lang}.
+
+=== REPORT (ALREADY PROVIDED — DO NOT RE-ASK ANY OF THIS) ===
 Community/client: ${input.communityName || "not specified"}
+Module: ${input.moduleDisplayName} (${input.module})
+Platform(s): ${input.platforms.join(", ") || "not specified"}
 What happened: ${input.whatHappened}
 Expected behavior: ${input.whatExpected || "not specified"}
 Blocks critical action: ${input.isBlocking ? "YES" : "no"}
 Users affected: ${input.usersAffected === "many" ? "multiple users" : "single user"}
-${historyBlock}
+${historyBlock}${docsBlock}
 === INSTRUCTIONS ===
-${
-  hasHistory
-    ? "You already asked a follow-up question. You MUST now respond with action='classify'."
-    : 'If you need ONE specific piece of information to classify accurately, respond with action="ask" and a brief question.\nOtherwise (or if you have enough context), respond with action="classify".'
-}
+${instructions}
 
 Classifications (for action="classify"):
-- bug_confirmed: Confirmed software defect in the Humand platform.
-- configuration_error: Incorrect admin-level configuration (not a bug).
-- cache_browser: Browser cache / stale data on the client side.
-- expected_behavior: The platform is working as designed.
-- needs_more_info: Cannot determine without more information from the admin.
+- bug_confirmed: Confirmed software defect in the Humand platform. The behavior contradicts the docs or is clearly broken.
+- configuration_error: The docs explain how to configure it and the admin clearly hasn't done so. Return specific steps from the docs.
+- cache_browser: Typical session/browser issue (logout, incognito, clear cache, switch browser).
+- expected_behavior: The platform works as designed. The docs confirm this behavior. Include help_center_link.
+- needs_more_info: Only if a specific technical detail is missing that changes the classification.
 
 Rules:
 - Respond ONLY in ${lang}.
-- explanation must be 2-3 friendly, non-technical sentences.
-- fixSteps: only for configuration_error or cache_browser (numbered action steps).
-- questions: only for needs_more_info (specific questions the admin should answer).
-- docUrl: optional, only for expected_behavior.
+- Tone: professional, direct, friendly. Use "vos" (not "tú") when in Spanish. No patronizing tone. Short sentences.
+- explanation: maximum 4 sentences. If including steps, use numbered list "1) ... 2) ...".
+- next_action rules:
+  * "retry_after_fix" → for configuration_error or cache_browser with clear fix steps.
+  * "contact_cx_manager" → for complex config, client-specific questions, billing, or if no docs exist and the case is ambiguous.
+  * "resolve" → for expected_behavior.
+  * null → for bug_confirmed.
+- keywords: extract 3–5 specific technical keywords from the problem (not generic words like "error" or "bug"). Example: ["vacaciones", "mobile", "congelar", "registrar", "error_500"].
+- summary: 1 sentence suitable as a Jira ticket title, max 120 chars.
 
-Respond with valid JSON matching this schema exactly:
+Respond with ONLY valid JSON matching this schema:
 {
   "action": "ask" | "classify",
   "question": "<string, only if action=ask>",
-  "classification": "<one of the 5 values, only if action=classify>",
+  "classification": "<one of 5 values, only if action=classify>",
+  "summary": "<1-sentence ticket title, only if action=classify>",
   "explanation": "<string, only if action=classify>",
-  "fixSteps": ["<step>", ...],
-  "questions": ["<question>", ...],
-  "docUrl": "<string>"
+  "help_center_link": "<URL string or omit>",
+  "next_action": "contact_cx_manager" | "retry_after_fix" | "resolve" | null,
+  "keywords": ["<keyword>", ...]
 }`;
 }
 
 // ─── JSON parse helper ────────────────────────────────────────────────────────
 
-/**
- * Parses Gemini's response text as JSON.
- * Handles cases where the model wraps output in a markdown code fence:
- *   ```json\n{...}\n```
- */
 function parseGeminiJson(text: string): ClassifyResult {
-  // First attempt: direct parse
   try {
     return JSON.parse(text) as ClassifyResult;
   } catch {
-    // Second attempt: extract JSON from markdown fence ```json ... ```
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch?.[1]) {
       try {
         return JSON.parse(fenceMatch[1].trim()) as ClassifyResult;
       } catch { /* fall through */ }
     }
-    // Third attempt: extract first {...} block
     const braceMatch = text.match(/\{[\s\S]*\}/);
     if (braceMatch?.[0]) {
       return JSON.parse(braceMatch[0]) as ClassifyResult;
@@ -137,7 +152,7 @@ export async function classifyReport(input: ClassifyInput): Promise<ClassifyResu
     model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.2, // low = consistent classifications
+      temperature: 0.2,
     },
   });
 

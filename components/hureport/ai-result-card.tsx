@@ -11,6 +11,8 @@ import {
   RotateCcw,
   Send,
   Ticket,
+  AlertTriangle,
+  Phone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Classification } from "@/lib/mappings";
@@ -65,7 +67,8 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const config = BADGE_CONFIG[result.classification as Classification];
+  const cls = result.classification as Classification;
+  const config = BADGE_CONFIG[cls];
   const Icon = config?.icon ?? Bug;
 
   async function submitAdditional() {
@@ -75,10 +78,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
       await fetch("/api/jira/comment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          commentRef: result.commentRef,
-          text: additionalText,
-        }),
+        body: JSON.stringify({ commentRef: result.commentRef, text: additionalText }),
       });
       setSubmitted(true);
     } finally {
@@ -88,29 +88,46 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Classification badge */}
+      {/* ── Duplicate banner ── */}
+      {result.isDuplicate && (
+        <div className="flex gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-amber-800">
+              {result.duplicateType === "jira"
+                ? lang === "es"
+                  ? "Ya estamos trabajando en este inconveniente"
+                  : "We're already working on this issue"
+                : lang === "es"
+                ? "Ya hay un pedido similar registrado"
+                : "A similar request is already registered"}
+            </p>
+            {result.duplicateTitle && (
+              <p className="text-xs text-amber-700 italic">&quot;{result.duplicateTitle}&quot;</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Classification badge ── */}
       {config && (
-        <div
-          className={cn(
-            "flex items-center gap-2 px-4 py-3 rounded-xl border",
-            config.bg,
-            config.border
-          )}
-        >
+        <div className={cn("flex items-center gap-2 px-4 py-3 rounded-xl border", config.bg, config.border)}>
           <Icon className={cn("w-5 h-5 flex-shrink-0", config.text)} />
           <span className={cn("font-semibold text-sm", config.text)}>
-            {t(`badge.${result.classification}` as Parameters<typeof t>[0], lang)}
+            {t(`badge.${cls}` as Parameters<typeof t>[0], lang)}
           </span>
         </div>
       )}
 
-      {/* AI Explanation */}
+      {/* ── AI Explanation ── */}
       {result.explanation && (
-        <p className="text-sm text-gray-700 leading-relaxed">{result.explanation}</p>
+        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+          {result.explanation}
+        </p>
       )}
 
-      {/* Bug confirmed — ticket created */}
-      {result.classification === "bug_confirmed" && result.ticketNumber && (
+      {/* ── Ticket created ── */}
+      {cls === "bug_confirmed" && !result.isDuplicate && result.ticketNumber && (
         <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
           <Ticket className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-green-800">
@@ -122,66 +139,65 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* Fix steps (configuration_error / cache_browser) */}
-      {result.fixSteps && result.fixSteps.length > 0 && (
-        <ol className="space-y-2">
-          {result.fixSteps.map((step, i) => (
-            <li key={i} className="flex gap-3 text-sm text-gray-700">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-light text-primary font-semibold text-xs flex items-center justify-center">
-                {i + 1}
-              </span>
-              <span className="pt-0.5">{step}</span>
-            </li>
-          ))}
-        </ol>
+      {/* ── Help center link (expected_behavior / config / any) ── */}
+      {result.helpCenterLink && (
+        <a
+          href={result.helpCenterLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover font-medium transition-colors"
+        >
+          <ExternalLink className="w-4 h-4" />
+          {t("result.viewDocs", lang)}
+        </a>
       )}
 
-      {/* Expected behavior — doc link + feedback prompt */}
-      {result.classification === "expected_behavior" && (
-        <div className="space-y-3">
-          {result.docUrl && (
-            <a
-              href={result.docUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover font-medium transition-colors"
-            >
-              <ExternalLink className="w-4 h-4" />
-              {t("result.viewDocs", lang)}
-            </a>
-          )}
-          {feedbackSent === null && (
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-              <p className="text-sm text-gray-700 mb-3">
-                {t("result.submitFeedback", lang)}
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setFeedbackSent(true)}
-                  className="flex-1 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover transition-colors"
-                >
-                  {t("result.yes", lang)}
-                </button>
-                <button
-                  onClick={() => setFeedbackSent(false)}
-                  className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300 transition-colors"
-                >
-                  {t("result.no", lang)}
-                </button>
-              </div>
-            </div>
-          )}
-          {feedbackSent === true && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />
-              {t("result.ticketCreated", lang)}
-            </div>
-          )}
+      {/* ── CX Manager routing ── */}
+      {result.nextAction === "contact_cx_manager" && (
+        <div className="flex gap-3 p-4 bg-primary-light border border-primary/20 rounded-xl">
+          <Phone className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold text-primary">
+              {result.cxOwnerName
+                ? `${t("result.contactCxName", lang)} ${result.cxOwnerName}`
+                : t("result.contactCx", lang)}
+            </p>
+            {!result.cxOwnerName && (
+              <p className="text-xs text-gray-600">{t("result.contactCxFallback", lang)}</p>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Needs more info — submit additional via Jira comment */}
-      {result.classification === "needs_more_info" && !submitted && (
+      {/* ── Expected behavior feedback prompt ── */}
+      {cls === "expected_behavior" && feedbackSent === null && (
+        <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+          <p className="text-sm text-gray-700 mb-3">{t("result.submitFeedback", lang)}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFeedbackSent(true)}
+              className="flex-1 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover transition-colors"
+            >
+              {t("result.yes", lang)}
+            </button>
+            <button
+              onClick={() => setFeedbackSent(false)}
+              className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300 transition-colors"
+            >
+              {t("result.no", lang)}
+            </button>
+          </div>
+        </div>
+      )}
+      {feedbackSent === true && (
+        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
+          <CheckCircle className="w-4 h-4 flex-shrink-0" />
+          {t("result.ticketCreated", lang)}
+        </div>
+      )}
+
+      {/* ── Needs more info — additional info input ── */}
+      {cls === "needs_more_info" && result.commentRef && !submitted && (
         <div className="space-y-2">
           <textarea
             value={additionalText}
@@ -191,14 +207,12 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
           />
           <button
             onClick={submitAdditional}
-            disabled={!additionalText.trim() || isSubmitting || !result.commentRef}
+            disabled={!additionalText.trim() || isSubmitting}
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"
           >
-            {isSubmitting ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
+            {isSubmitting
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Send className="w-4 h-4" />}
             {t("result.submitAdditional", lang)}
           </button>
         </div>
@@ -211,7 +225,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* Report another */}
+      {/* ── Report another ── */}
       <button
         onClick={onReportAnother}
         className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"

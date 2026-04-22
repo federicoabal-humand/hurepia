@@ -137,6 +137,19 @@ const TRANSLATIONS = {
     "platform.web_app": "Web App",
     "platform.mobile_app": "Mobile App",
     "platform.api": "API",
+
+    // Community Gate
+    "gate.title": "¿En qué comunidad trabajás?",
+    "gate.subtitle": "Identificá tu comunidad para reportar y ver tus tickets.",
+    "gate.placeholder": "Buscá tu comunidad...",
+    "gate.noResults": "Sin resultados. Intentá con otro nombre.",
+    "gate.hint": "Tus reportes quedan asociados a tu comunidad.",
+    "header.changeCommunity": "Cambiar comunidad",
+
+    // CX routing
+    "result.contactCx": "Contactá a tu CX Manager",
+    "result.contactCxName": "Contactá a",
+    "result.contactCxFallback": "Contactá con tu Manager/Owner de cuenta por los canales oficiales de Humand.",
   },
 
   en: {
@@ -275,6 +288,19 @@ const TRANSLATIONS = {
     "platform.web_app": "Web App",
     "platform.mobile_app": "Mobile App",
     "platform.api": "API",
+
+    // Community Gate
+    "gate.title": "What community do you work for?",
+    "gate.subtitle": "Identify your community to report issues and view your tickets.",
+    "gate.placeholder": "Search your community...",
+    "gate.noResults": "No results. Try a different name.",
+    "gate.hint": "Your reports will be linked to your community.",
+    "header.changeCommunity": "Change community",
+
+    // CX routing
+    "result.contactCx": "Contact your CX Manager",
+    "result.contactCxName": "Contact",
+    "result.contactCxFallback": "Reach out to your Account Manager/Owner through the official Humand channels.",
   },
 } as const;
 

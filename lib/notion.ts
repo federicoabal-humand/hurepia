@@ -5,6 +5,7 @@
  * Env: NOTION_API_TOKEN
  */
 import { NOTION_DB } from "./mappings";
+import { MODULE_NOTION_MAP } from "./module-registry";
 
 const NOTION_VERSION = "2022-06-28";
 
@@ -218,4 +219,165 @@ export async function searchClientsInputs(
   } catch {
     return [];
   }
+}
+
+// ─── CX Owner resolution ──────────────────────────────────────────────────────
+
+export interface CommunityCxInfo {
+  cxOwnerName?: string;
+  found: boolean;
+}
+
+/**
+ * Fetch the CX Owner name for a community from the COMUNIDADES_CLIENTES DB.
+ * The "CX Owner" property is a rollup from the "Humand Clients" relation.
+ * Returns { found: false } on any failure — never throws.
+ */
+export async function getCxOwnerForCommunity(
+  pageId: string
+): Promise<CommunityCxInfo> {
+  const token = process.env.NOTION_API_TOKEN;
+  if (!token || !pageId) return { found: false };
+
+  try {
+    const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+      headers: { ...headers(), "Content-Type": undefined as unknown as string },
+    });
+    if (!res.ok) return { found: false };
+
+    const page = await res.json();
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+
+    // Try "CX Owner" property in multiple formats
+    for (const key of ["CX Owner", "cx_owner", "CX", "Owner"]) {
+      const prop = props[key] as Record<string, unknown> | undefined;
+      if (!prop) continue;
+
+      const type = prop["type"] as string | undefined;
+
+      // Rollup (most likely)
+      if (type === "rollup") {
+        const rollup = prop["rollup"] as {
+          type?: string;
+          array?: Array<{
+            type?: string;
+            people?: Array<{ name?: string }>;
+            rich_text?: Array<{ plain_text?: string }>;
+            title?: Array<{ plain_text?: string }>;
+          }>;
+          string?: string;
+        } | undefined;
+
+        if (rollup?.string?.trim()) return { found: true, cxOwnerName: rollup.string.trim() };
+
+        const first = rollup?.array?.[0];
+        if (first?.people?.[0]?.name) return { found: true, cxOwnerName: first.people[0].name };
+        if (first?.rich_text?.[0]?.plain_text?.trim())
+          return { found: true, cxOwnerName: first.rich_text[0].plain_text.trim() };
+        if (first?.title?.[0]?.plain_text?.trim())
+          return { found: true, cxOwnerName: first.title[0].plain_text.trim() };
+      }
+
+      // People property
+      if (type === "people") {
+        const people = prop["people"] as Array<{ name?: string }> | undefined;
+        if (people?.[0]?.name) return { found: true, cxOwnerName: people[0].name };
+      }
+
+      // Rich text
+      if (type === "rich_text") {
+        const arr = prop["rich_text"] as Array<{ plain_text?: string }> | undefined;
+        if (arr?.[0]?.plain_text?.trim())
+          return { found: true, cxOwnerName: arr[0].plain_text.trim() };
+      }
+    }
+
+    return { found: false };
+  } catch {
+    return { found: false };
+  }
+}
+
+// ─── Module docs ──────────────────────────────────────────────────────────────
+
+export interface ModuleDocsResult {
+  found: boolean;
+  displayName?: string;
+  content?: string;
+  notionUrl?: string;
+}
+
+/**
+ * Fetch documentation blocks for a Humand module from Notion.
+ * - If module not in MODULE_NOTION_MAP → { found: false }
+ * - Fetches child blocks depth-1, extracts plain text from paragraphs,
+ *   headings, bullets, callouts, toggles. Max 8000 chars.
+ * - Timeout: 8s total.
+ */
+export async function getModuleDocs(
+  moduleSlug: string
+): Promise<ModuleDocsResult> {
+  const token = process.env.NOTION_API_TOKEN;
+  const entry = MODULE_NOTION_MAP[moduleSlug];
+  if (!token || !entry) return { found: false };
+
+  const { pageId, displayName } = entry;
+  const notionUrl = `https://www.notion.so/${pageId.replace(/-/g, "")}`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(
+      `https://api.notion.com/v1/blocks/${pageId}/children?page_size=50`,
+      { headers: headers(), signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return { found: false };
+
+    const data = await res.json();
+    const blocks = data.results ?? [];
+    const text = extractBlocksText(blocks, 8000);
+
+    return {
+      found: true,
+      displayName,
+      content: text || undefined,
+      notionUrl,
+    };
+  } catch {
+    return { found: false };
+  }
+}
+
+/**
+ * Extract plain text from Notion blocks (depth-1).
+ * Handles: paragraph, heading_1/2/3, bulleted_list_item,
+ *           numbered_list_item, callout, toggle, quote.
+ */
+function extractBlocksText(
+  blocks: Array<Record<string, unknown>>,
+  maxChars: number
+): string {
+  const parts: string[] = [];
+  let total = 0;
+
+  for (const block of blocks) {
+    if (total >= maxChars) break;
+    const type = block["type"] as string;
+    const content = block[type] as Record<string, unknown> | undefined;
+    if (!content) continue;
+
+    const richText = content["rich_text"] as Array<{ plain_text?: string }> | undefined;
+    if (!richText?.length) continue;
+
+    const text = richText.map((t) => t.plain_text ?? "").join("").trim();
+    if (!text) continue;
+
+    parts.push(text);
+    total += text.length;
+  }
+
+  return parts.join("\n").slice(0, maxChars);
 }
