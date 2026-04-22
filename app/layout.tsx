@@ -6,6 +6,7 @@ const inter = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-inter",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -19,8 +20,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={inter.variable}>
-      <body>{children}</body>
+    // `light` class locks Tailwind to the light palette (darkMode:"class" in config)
+    <html lang="es" className={`${inter.variable} light`}>
+      <body className="font-sans bg-white text-gray-900 antialiased">
+        {children}
+      </body>
     </html>
   );
 }

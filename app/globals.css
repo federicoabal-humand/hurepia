@@ -2,33 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Humand design system — forced light mode ─────────────────────── */
 :root {
-  --bg: #ffffff;
-  --text-primary: #000000;
-  --text-secondary: #666666;
+  color-scheme: light;
+
+  /* Surface tokens */
+  --surface-0:   #ffffff;
+  --surface-50:  #f9fafb;
+  --surface-100: #f3f4f6;
+
+  /* Text tokens */
+  --text-primary:   #111827;
+  --text-secondary: #6b7280;
+  --text-muted:     #9ca3af;
+
+  /* Border */
+  --border: #e5e7eb;
+
+  /* Humand brand blue */
+  --color-primary:       #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #dbeafe;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f172a;
-    --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
-  }
-}
-
-body {
-  background-color: var(--bg);
+/* Force light-mode palette regardless of OS preference */
+html, body {
+  background-color: var(--surface-0);
   color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.bg-bg {
-  background-color: var(--bg);
-}
-
-.text-text-primary {
-  color: var(--text-primary);
-}
-
-.text-text-secondary {
-  color: var(--text-secondary);
-}
+/* Utility aliases (kept for backwards-compat with older class usage) */
+.bg-bg         { background-color: var(--surface-0); }
+.text-text-primary   { color: var(--text-primary); }
+.text-text-secondary { color: var(--text-secondary); }
