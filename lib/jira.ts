@@ -66,8 +66,8 @@ export async function createJiraIssue(
       summary:   input.summary.slice(0, 254),
       description: adf(input.description),
 
-      // Bug Description — textarea field accepts plain string
-      [JIRA.FIELDS.BUG_DESCRIPTION]: input.description.slice(0, 32000),
+      // Bug Description — despite schema saying "textarea", Jira requires ADF
+      [JIRA.FIELDS.BUG_DESCRIPTION]: adf(input.description.slice(0, 32000)),
 
       // Mini App — multicheckboxes: array of option objects with id
       ...(miniAppId
@@ -126,7 +126,7 @@ export async function createJiraIssue(
           issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID },
           summary:   input.summary.slice(0, 254),
           description: adf(fallbackDescription),
-          [JIRA.FIELDS.BUG_DESCRIPTION]: fallbackDescription.slice(0, 32000),
+          [JIRA.FIELDS.BUG_DESCRIPTION]: adf(fallbackDescription.slice(0, 32000)),
         },
       }),
     });
@@ -155,7 +155,8 @@ export async function searchIssuesForCommunity(
 ): Promise<JiraIssueSummary[]> {
   const jql = `project = ${JIRA.PROJECT_KEY} ORDER BY created DESC`;
   const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
-  const url = `${base()}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=20&fields=${fields}`;
+  // NOTE: /rest/api/3/search is deprecated — use /rest/api/3/search/jql
+  const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=20&fields=${fields}`;
 
   try {
     const res = await fetch(url, { headers: headers() });

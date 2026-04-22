@@ -1,18 +1,45 @@
-// TODO: Real implementation
-// 1. Read JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN from env
-// 2. GET https://{JIRA_BASE_URL}/rest/api/3/issue/{jiraKey}
-//    Map response.fields.status.name via mapJiraStatusToFriendly() from lib/mappings.ts
-//
-// Query params: ?ticketNumber=N
-// Response: { status: FriendlyStatus }
-
+/**
+ * GET /api/jira/status?commentRef=<signed-ref>
+ * Returns the friendly status of a Jira issue identified by a signed commentRef.
+ * Response: { status: FriendlyStatus }
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { MOCK_TICKETS } from "@/lib/mock-data";
-import type { FriendlyStatus } from "@/lib/mappings";
+import { verifyIssueRef } from "@/lib/token";
+import { mapJiraStatusToFriendly } from "@/lib/mappings";
+
+function jiraHeaders() {
+  const base64 = Buffer.from(
+    `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+  ).toString("base64");
+  return {
+    Authorization: `Basic ${base64}`,
+    Accept: "application/json",
+  };
+}
 
 export async function GET(req: NextRequest) {
-  const ticketNumber = Number(req.nextUrl.searchParams.get("ticketNumber"));
-  const ticket = MOCK_TICKETS.find((t) => t.ticketNumber === ticketNumber);
-  const status: FriendlyStatus = ticket?.status ?? "reported";
-  return NextResponse.json({ status });
+  const commentRef = req.nextUrl.searchParams.get("commentRef") ?? "";
+
+  const jiraKey = verifyIssueRef(commentRef);
+  if (!jiraKey) {
+    return NextResponse.json({ error: "Invalid reference" }, { status: 403 });
+  }
+
+  try {
+    const base = process.env.JIRA_BASE_URL ?? "https://humand.atlassian.net";
+    const res = await fetch(
+      `${base}/rest/api/3/issue/${jiraKey}?fields=status`,
+      { headers: jiraHeaders() }
+    );
+
+    if (!res.ok) {
+      return NextResponse.json({ status: "reported" });
+    }
+
+    const data = await res.json();
+    const statusName: string = data.fields?.status?.name ?? "";
+    return NextResponse.json({ status: mapJiraStatusToFriendly(statusName) });
+  } catch {
+    return NextResponse.json({ status: "reported" });
+  }
 }

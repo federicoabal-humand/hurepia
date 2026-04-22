@@ -27,8 +27,9 @@ export interface CommunityResult {
  * Search COMUNIDADES_CLIENTES database by community name.
  * Returns up to 5 matches. Falls back to [] on error.
  *
- * Tries property name variants in order until one returns results.
- * Stops on the first attempt that returns ≥1 results.
+ * Strategy 1: Notion global /v1/search (smart full-text, works regardless
+ *   of which property stores the name).
+ * Strategy 2: Full DB query with client-side filter (handles rollup values).
  */
 export async function searchCommunities(
   query: string
@@ -36,69 +37,133 @@ export async function searchCommunities(
   const token = process.env.NOTION_API_TOKEN;
   if (!token || query.length < 2) return [];
 
-  const propertyAttempts = [
-    { property: "Nombre", type: "rich_text", filter: { contains: query } },
-    { property: "Name",   type: "title",     filter: { contains: query } },
-    { property: "Empresa",type: "title",     filter: { contains: query } },
-    { property: "Nombre", type: "title",     filter: { contains: query } },
-  ];
+  const dbId = NOTION_DB.COMUNIDADES_CLIENTES.replace(/-/g, "");
 
-  for (const attempt of propertyAttempts) {
-    try {
-      const res = await fetch(
-        `https://api.notion.com/v1/databases/${NOTION_DB.COMUNIDADES_CLIENTES}/query`,
-        {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({
-            filter: {
-              property: attempt.property,
-              [attempt.type]: attempt.filter,
-            },
-            page_size: 5,
-          }),
-        }
-      );
+  // ── Strategy 1: global search ──────────────────────────────────────────────
+  try {
+    const res = await fetch("https://api.notion.com/v1/search", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        query,
+        filter: { property: "object", value: "page" },
+        page_size: 10,
+      }),
+    });
 
-      if (!res.ok) continue; // wrong property type/name → try next
-
+    if (res.ok) {
       const data = await res.json();
-      const results: CommunityResult[] = (data.results ?? []).map(
-        (page: Record<string, unknown>) => {
-          const props = (page.properties ?? {}) as Record<string, unknown>;
-          return { id: page.id as string, name: extractText(props) };
-        }
-      );
+      const inDb = (data.results ?? []).filter((page: Record<string, unknown>) => {
+        const parent = page.parent as { type?: string; database_id?: string } | undefined;
+        return (
+          parent?.type === "database_id" &&
+          (parent.database_id ?? "").replace(/-/g, "") === dbId
+        );
+      });
 
-      // Only stop if we actually got results — if 0, try next property variant
-      if (results.length > 0) return results;
-    } catch {
-      continue;
+      if (inDb.length > 0) {
+        return inDb.slice(0, 5).map((page: Record<string, unknown>) => ({
+          id: page.id as string,
+          name: extractCommunityName(
+            (page.properties ?? {}) as Record<string, unknown>,
+            page.id as string
+          ),
+        }));
+      }
     }
-  }
+  } catch { /* fall through */ }
+
+  // ── Strategy 2: query all pages, filter client-side ────────────────────────
+  try {
+    const res = await fetch(
+      `https://api.notion.com/v1/databases/${NOTION_DB.COMUNIDADES_CLIENTES}/query`,
+      {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ page_size: 50 }),
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const q = query.toLowerCase();
+      return (data.results ?? [])
+        .map((page: Record<string, unknown>) => ({
+          id: page.id as string,
+          name: extractCommunityName(
+            (page.properties ?? {}) as Record<string, unknown>,
+            page.id as string
+          ),
+        }))
+        .filter(
+          (r: CommunityResult) =>
+            r.name !== "?" && r.name.toLowerCase().includes(q)
+        )
+        .slice(0, 5);
+    }
+  } catch { /* fall through */ }
 
   return [];
 }
 
-/** Extract the first available text from any Notion property */
-function extractText(props: Record<string, unknown>): string {
+/**
+ * Extract the best human-readable name from a COMUNIDADES_CLIENTES page.
+ * Handles title, rich_text, and rollup (show_original) property types.
+ * Falls back to a short page-id label so the UI never shows "Unknown".
+ */
+function extractCommunityName(
+  props: Record<string, unknown>,
+  pageId: string
+): string {
   for (const key of Object.keys(props)) {
     const prop = props[key] as Record<string, unknown> | undefined;
     if (!prop) continue;
-    const titleArr = prop["title"] as Array<{ plain_text?: string; text?: { content: string } }> | undefined;
-    if (titleArr?.[0]) {
-      const t = titleArr[0];
-      if (t.plain_text) return t.plain_text;
-      if (t.text?.content) return t.text.content;
+
+    const type = prop["type"] as string | undefined;
+
+    if (type === "title") {
+      const arr = prop["title"] as Array<{ plain_text?: string }> | undefined;
+      const text = arr?.[0]?.plain_text?.trim();
+      if (text) return text;
     }
-    const rtArr = prop["rich_text"] as Array<{ plain_text?: string; text?: { content: string } }> | undefined;
-    if (rtArr?.[0]) {
-      const t = rtArr[0];
-      if (t.plain_text) return t.plain_text;
-      if (t.text?.content) return t.text.content;
+
+    if (type === "rich_text") {
+      const arr = prop["rich_text"] as Array<{ plain_text?: string }> | undefined;
+      const text = arr?.[0]?.plain_text?.trim();
+      if (text) return text;
+    }
+
+    if (type === "rollup") {
+      const rollup = prop["rollup"] as {
+        type?: string;
+        array?: Array<{
+          type?: string;
+          rich_text?: Array<{ plain_text?: string }>;
+          title?: Array<{ plain_text?: string }>;
+          formula?: { string?: string };
+        }>;
+        string?: string;
+      } | undefined;
+
+      // Scalar rollup (e.g. show_unique or coalesce)
+      if (rollup?.string?.trim()) return rollup.string.trim();
+
+      // Array rollup — first element
+      const first = rollup?.array?.[0];
+      if (first?.rich_text?.[0]?.plain_text?.trim())
+        return first.rich_text[0].plain_text.trim();
+      if (first?.title?.[0]?.plain_text?.trim())
+        return first.title[0].plain_text.trim();
+    }
+
+    if (type === "formula") {
+      const formula = prop["formula"] as { type?: string; string?: string } | undefined;
+      if (formula?.string?.trim()) return formula.string.trim();
     }
   }
-  return "Unknown";
+
+  // Absolute fallback: short ID (never show "Unknown" in the UI)
+  return `?`;
 }
 
 // ─── Client inputs search ─────────────────────────────────────────────────────
@@ -111,6 +176,7 @@ export interface ClientInput {
 /**
  * Search CLIENTS_INPUTS database for items matching any of the provided keywords.
  * Used for duplicate detection before creating a Jira ticket.
+ * Title property in CLIENTS_INPUTS is "Input" (not "Name").
  */
 export async function searchClientsInputs(
   keywords: string[]
@@ -130,7 +196,7 @@ export async function searchClientsInputs(
         body: JSON.stringify({
           filter: {
             or: terms.map((k) => ({
-              property: "Name",
+              property: "Input",   // ← actual title property (was "Name")
               title: { contains: k },
             })),
           },
@@ -144,7 +210,10 @@ export async function searchClientsInputs(
     const data = await res.json();
     return (data.results ?? []).map((page: Record<string, unknown>) => {
       const props = (page.properties ?? {}) as Record<string, unknown>;
-      return { id: page.id as string, title: extractText(props) };
+      return {
+        id: page.id as string,
+        title: extractCommunityName(props, page.id as string),
+      };
     });
   } catch {
     return [];
