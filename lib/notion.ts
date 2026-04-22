@@ -19,7 +19,7 @@ function headers() {
 // ─── Community search ─────────────────────────────────────────────────────────
 
 export interface CommunityResult {
-  id: string; // Notion page ID
+  id: string;
   name: string;
 }
 
@@ -27,7 +27,8 @@ export interface CommunityResult {
  * Search COMUNIDADES_CLIENTES database by community name.
  * Returns up to 5 matches. Falls back to [] on error.
  *
- * Property name fallback chain: "Nombre" → "Name" → "Empresa" → "Community"
+ * Tries property name variants in order until one returns results.
+ * Stops on the first attempt that returns ≥1 results.
  */
 export async function searchCommunities(
   query: string
@@ -35,11 +36,11 @@ export async function searchCommunities(
   const token = process.env.NOTION_API_TOKEN;
   if (!token || query.length < 2) return [];
 
-  // Try several common property names for the "name" of a community
   const propertyAttempts = [
     { property: "Nombre", type: "rich_text", filter: { contains: query } },
-    { property: "Name", type: "title", filter: { contains: query } },
-    { property: "Empresa", type: "title", filter: { contains: query } },
+    { property: "Name",   type: "title",     filter: { contains: query } },
+    { property: "Empresa",type: "title",     filter: { contains: query } },
+    { property: "Nombre", type: "title",     filter: { contains: query } },
   ];
 
   for (const attempt of propertyAttempts) {
@@ -59,21 +60,18 @@ export async function searchCommunities(
         }
       );
 
-      if (!res.ok) continue;
+      if (!res.ok) continue; // wrong property type/name → try next
 
       const data = await res.json();
       const results: CommunityResult[] = (data.results ?? []).map(
         (page: Record<string, unknown>) => {
           const props = (page.properties ?? {}) as Record<string, unknown>;
-          const name = extractText(props);
-          return { id: page.id as string, name };
+          return { id: page.id as string, name: extractText(props) };
         }
       );
 
-      // Only return if we actually got some results
-      if (results.length > 0 || data.results?.length === 0) {
-        return results;
-      }
+      // Only stop if we actually got results — if 0, try next property variant
+      if (results.length > 0) return results;
     } catch {
       continue;
     }
@@ -87,12 +85,18 @@ function extractText(props: Record<string, unknown>): string {
   for (const key of Object.keys(props)) {
     const prop = props[key] as Record<string, unknown> | undefined;
     if (!prop) continue;
-    // title type
-    const titleArr = prop["title"] as Array<{ text: { content: string } }> | undefined;
-    if (titleArr?.[0]?.text?.content) return titleArr[0].text.content;
-    // rich_text type
-    const rtArr = prop["rich_text"] as Array<{ text: { content: string } }> | undefined;
-    if (rtArr?.[0]?.text?.content) return rtArr[0].text.content;
+    const titleArr = prop["title"] as Array<{ plain_text?: string; text?: { content: string } }> | undefined;
+    if (titleArr?.[0]) {
+      const t = titleArr[0];
+      if (t.plain_text) return t.plain_text;
+      if (t.text?.content) return t.text.content;
+    }
+    const rtArr = prop["rich_text"] as Array<{ plain_text?: string; text?: { content: string } }> | undefined;
+    if (rtArr?.[0]) {
+      const t = rtArr[0];
+      if (t.plain_text) return t.plain_text;
+      if (t.text?.content) return t.text.content;
+    }
   }
   return "Unknown";
 }

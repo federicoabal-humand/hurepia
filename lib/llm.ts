@@ -3,14 +3,12 @@
  * Gemini-powered classification for HuReport AI.
  *
  * Model: gemini-2.0-flash-exp (fast, cheap, great for classification)
- * For complex / ambiguous reports consider "gemini-2.5-pro" as fallback.
- *
  * Env: GEMINI_API_KEY
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { Classification } from "./mappings";
 
-// ─── Public types ────────────────────────────────────────────────────────────
+// ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -30,16 +28,16 @@ export interface ClassifyInput {
 }
 
 export interface ClassifyResult {
-  /** "ask" → one follow-up question before classification (max once in a session) */
+  /** "ask" → one follow-up question before classification (max once per session) */
   action: "ask" | "classify";
   /** Only when action==="ask" */
   question?: string;
   /** Only when action==="classify" */
   classification?: Classification;
   explanation?: string;
-  fixSteps?: string[]; // config_error / cache_browser
-  questions?: string[]; // needs_more_info — list to show in result card
-  docUrl?: string; // expected_behavior
+  fixSteps?: string[];   // config_error / cache_browser
+  questions?: string[];  // needs_more_info — specific questions to answer
+  docUrl?: string;       // expected_behavior
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
@@ -100,6 +98,34 @@ Respond with valid JSON matching this schema exactly:
 }`;
 }
 
+// ─── JSON parse helper ────────────────────────────────────────────────────────
+
+/**
+ * Parses Gemini's response text as JSON.
+ * Handles cases where the model wraps output in a markdown code fence:
+ *   ```json\n{...}\n```
+ */
+function parseGeminiJson(text: string): ClassifyResult {
+  // First attempt: direct parse
+  try {
+    return JSON.parse(text) as ClassifyResult;
+  } catch {
+    // Second attempt: extract JSON from markdown fence ```json ... ```
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch?.[1]) {
+      try {
+        return JSON.parse(fenceMatch[1].trim()) as ClassifyResult;
+      } catch { /* fall through */ }
+    }
+    // Third attempt: extract first {...} block
+    const braceMatch = text.match(/\{[\s\S]*\}/);
+    if (braceMatch?.[0]) {
+      return JSON.parse(braceMatch[0]) as ClassifyResult;
+    }
+    throw new Error(`Gemini returned unparseable JSON: ${text.slice(0, 200)}`);
+  }
+}
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 export async function classifyReport(input: ClassifyInput): Promise<ClassifyResult> {
@@ -107,14 +133,11 @@ export async function classifyReport(input: ClassifyInput): Promise<ClassifyResu
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
   const genAI = new GoogleGenerativeAI(apiKey);
-
-  // gemini-2.0-flash-exp: fast & cheap for classification tasks.
-  // Upgrade to "gemini-2.5-pro" if classification accuracy needs improvement.
   const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash-exp",
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.2, // low temperature → consistent classifications
+      temperature: 0.2, // low = consistent classifications
     },
   });
 
@@ -122,6 +145,5 @@ export async function classifyReport(input: ClassifyInput): Promise<ClassifyResu
   const response = await model.generateContent(prompt);
   const text = response.response.text();
 
-  const parsed = JSON.parse(text) as ClassifyResult;
-  return parsed;
+  return parseGeminiJson(text);
 }

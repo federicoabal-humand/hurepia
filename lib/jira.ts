@@ -4,7 +4,7 @@
  *
  * Env: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
  */
-import { JIRA, mapJiraStatusToFriendly } from "./mappings";
+import { JIRA, MODULE_TO_JIRA_ID, mapJiraStatusToFriendly } from "./mappings";
 import type { FriendlyStatus } from "./mappings";
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
@@ -57,16 +57,43 @@ export interface CreatedIssue {
 export async function createJiraIssue(
   input: CreateIssueInput
 ): Promise<CreatedIssue> {
+  const miniAppId = MODULE_TO_JIRA_ID[input.module];
+
   const fullPayload = {
     fields: {
-      project: { key: JIRA.PROJECT_KEY },
-      issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID },
-      summary: input.summary.slice(0, 254),
+      project:   { key: JIRA.PROJECT_KEY },
+      issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID }, // "10060" = "Error" (Bug) in HUREP
+      summary:   input.summary.slice(0, 254),
       description: adf(input.description),
-      // Custom fields — best-effort; Jira returns 400 if a field rejects the value
+
+      // Bug Description — textarea field accepts plain string
       [JIRA.FIELDS.BUG_DESCRIPTION]: input.description.slice(0, 32000),
-      [JIRA.FIELDS.MINI_APP]: input.module,
-      [JIRA.FIELDS.AFFECTED_CLIENTS]: input.communityName,
+
+      // Mini App — multicheckboxes: array of option objects with id
+      ...(miniAppId
+        ? { [JIRA.FIELDS.MINI_APP]: [{ id: miniAppId }] }
+        : {}),
+
+      // Affected Clients — labels field: array of strings
+      ...(input.communityName.trim()
+        ? { [JIRA.FIELDS.AFFECTED_CLIENTS]: [input.communityName.trim()] }
+        : {}),
+
+      // Bug Blocking — radiobutton: single option by id
+      [JIRA.FIELDS.BUG_BLOCKING]: {
+        id: input.isBlocking ? JIRA.BLOCKING_YES : JIRA.BLOCKING_NO,
+      },
+
+      // Affected Users Count — radiobutton: single option by id
+      [JIRA.FIELDS.AFFECTED_USERS_COUNT]: {
+        id: input.affectedUsersCount === "many" ? JIRA.USERS_MANY : JIRA.USERS_ONE,
+      },
+
+      // Bug Type — default to "Functional"
+      [JIRA.FIELDS.BUG_TYPE]: [{ id: JIRA.BUG_TYPE_FUNCTIONAL }],
+
+      // Bug Reproduced — default to "No" (reported by admin, not yet reproduced by eng)
+      [JIRA.FIELDS.BUG_REPRODUCED]: { id: JIRA.REPRODUCED_NO },
     },
   };
 
@@ -76,22 +103,30 @@ export async function createJiraIssue(
     body: JSON.stringify(fullPayload),
   });
 
-  // If custom fields caused a 400, retry with only mandatory fields
+  // If any custom field caused a 400, retry with only the mandatory fields
+  // so the ticket is always created even if custom fields have schema mismatches.
   if (!res.ok) {
     const errText = await res.text();
     console.warn("[jira] createJiraIssue full payload failed:", errText);
+
+    const fallbackDescription =
+      `${input.description}\n\n` +
+      `---\n` +
+      `Community: ${input.communityName || "—"}\n` +
+      `Module: ${input.module}\n` +
+      `Blocking: ${input.isBlocking ? "Yes" : "No"}\n` +
+      `Users affected: ${input.affectedUsersCount === "many" ? ">1" : "1"}`;
 
     res = await fetch(`${base()}/rest/api/3/issue`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify({
         fields: {
-          project: { key: JIRA.PROJECT_KEY },
+          project:   { key: JIRA.PROJECT_KEY },
           issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID },
-          summary: input.summary.slice(0, 254),
-          description: adf(
-            `${input.description}\n\nCommunity: ${input.communityName}\nModule: ${input.module}\nBlocking: ${input.isBlocking}\nUsers: ${input.affectedUsersCount}`
-          ),
+          summary:   input.summary.slice(0, 254),
+          description: adf(fallbackDescription),
+          [JIRA.FIELDS.BUG_DESCRIPTION]: fallbackDescription.slice(0, 32000),
         },
       }),
     });
@@ -116,19 +151,10 @@ export interface JiraIssueSummary {
 }
 
 export async function searchIssuesForCommunity(
-  // communityName is used for display; JQL fetches all recent HUREP issues
-  // TODO: once AFFECTED_CLIENTS custom field is indexed, add:
-  //   AND "${JIRA.FIELDS.AFFECTED_CLIENTS}" ~ "${communityName}"
   _communityName: string
 ): Promise<JiraIssueSummary[]> {
   const jql = `project = ${JIRA.PROJECT_KEY} ORDER BY created DESC`;
-  const fields = [
-    "summary",
-    "status",
-    "created",
-    JIRA.FIELDS.MINI_APP,
-  ].join(",");
-
+  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
   const url = `${base()}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=20&fields=${fields}`;
 
   try {
@@ -138,7 +164,7 @@ export async function searchIssuesForCommunity(
       return [];
     }
     const data = await res.json();
-    const issues: JiraIssueSummary[] = (data.issues ?? []).map(
+    return (data.issues ?? []).map(
       (issue: {
         key: string;
         fields: {
@@ -147,15 +173,23 @@ export async function searchIssuesForCommunity(
           created: string;
           [key: string]: unknown;
         };
-      }) => ({
-        key: issue.key,
-        summary: issue.fields.summary,
-        module: (issue.fields[JIRA.FIELDS.MINI_APP] as string) ?? "general",
-        status: mapJiraStatusToFriendly(issue.fields.status.name),
-        createdAt: issue.fields.created,
-      })
+      }) => {
+        // MINI_APP is a multicheckboxes array — extract first value label
+        const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
+        const module =
+          Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
+            ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
+            : "general";
+
+        return {
+          key:       issue.key,
+          summary:   issue.fields.summary,
+          module,
+          status:    mapJiraStatusToFriendly(issue.fields.status.name),
+          createdAt: issue.fields.created,
+        };
+      }
     );
-    return issues;
   } catch (err) {
     console.error("[jira] searchIssues error:", err);
     return [];
