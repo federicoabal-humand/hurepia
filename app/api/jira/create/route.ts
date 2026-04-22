@@ -1,19 +1,49 @@
-// TODO: Real implementation
-// 1. Read JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN from env
-// 2. POST to https://{JIRA_BASE_URL}/rest/api/3/issue with:
-//    - project: { key: JIRA.PROJECT_KEY }, issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID }
-//    - customfield_10108 (BUG_DESCRIPTION), customfield_10071 (MINI_APP),
-//      customfield_10100 (BUG_TYPE), customfield_10112 (BUG_BLOCKING),
-//      customfield_10113 (AFFECTED_USERS_COUNT) from JIRA.FIELDS in lib/mappings.ts
-// 3. Return ticketNumber (sequential counter) — NEVER expose jiraKey in UI
-//
-// Body: { community, module, platforms, whatHappened, isBlocking, usersAffected, url, email }
-// Response: { ticketNumber: number }
-
+/**
+ * POST /api/jira/create
+ * Creates a Jira issue in HUREP project and returns a signed commentRef.
+ * NEVER returns the raw HUREP-XX key to the frontend.
+ *
+ * Body: { summary, description, module, affectedUsersCount, isBlocking, communityName }
+ * Response: { ticketNumber, commentRef }
+ */
 import { NextRequest, NextResponse } from "next/server";
-import { MOCK_TICKETS } from "@/lib/mock-data";
+import { createJiraIssue } from "@/lib/jira";
+import { signIssueRef } from "@/lib/token";
+import { searchIssuesForCommunity } from "@/lib/jira";
 
-export async function POST(_req: NextRequest) {
-  await new Promise((r) => setTimeout(r, 500));
-  return NextResponse.json({ ticketNumber: MOCK_TICKETS.length + 1 });
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { summary, description, module, affectedUsersCount, isBlocking, communityName } = body;
+
+    const issue = await createJiraIssue({
+      summary: summary ?? description?.slice(0, 100) ?? "Bug report",
+      description: description ?? summary ?? "",
+      module: module ?? "general",
+      affectedUsersCount: affectedUsersCount ?? "1",
+      isBlocking: !!isBlocking,
+      communityName: communityName ?? "",
+    });
+
+    // Get sequential ticket number: count existing issues + 1
+    let ticketNumber = 1;
+    try {
+      const existing = await searchIssuesForCommunity(communityName ?? "");
+      // The new issue is already in Jira, so count includes it; subtract 1 for index, add 1 for display
+      ticketNumber = Math.max(existing.length, 1);
+    } catch {
+      // best-effort
+    }
+
+    // Sign the jiraKey — client gets an opaque ref, never HUREP-XX
+    const commentRef = signIssueRef(issue.key);
+
+    return NextResponse.json({ ticketNumber, commentRef });
+  } catch (err) {
+    console.error("[jira/create] error:", err);
+    return NextResponse.json(
+      { error: "Failed to create issue" },
+      { status: 500 }
+    );
+  }
 }

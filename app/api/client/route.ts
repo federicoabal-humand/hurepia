@@ -1,28 +1,34 @@
-// TODO: Real implementation
-// 1. Read NOTION_TOKEN from env
-// 2. Query the Notion database NOTION_DB.COMUNIDADES_CLIENTES from lib/mappings.ts
-//    using filter: { property: "Name", rich_text: { contains: q } }
-// 3. Map Notion page properties to MockCommunity shape
-// 4. Return the matching communities
-//
-// Query params: ?q=search+term
-// Response: MockCommunity[]
-
+/**
+ * GET /api/client?q=banco
+ * Searches Notion COMUNIDADES_CLIENTES database for communities by name.
+ * Falls back to mock data if Notion is unavailable or returns no results.
+ * Response: { id, name }[]
+ */
 import { NextRequest, NextResponse } from "next/server";
+import { searchCommunities } from "@/lib/notion";
 import { MOCK_COMMUNITIES } from "@/lib/mock-data";
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q")?.toLowerCase() ?? "";
+  const q = req.nextUrl.searchParams.get("q") ?? "";
+  if (q.length < 2) return NextResponse.json([]);
 
-  if (!q || q.length < 2) {
-    return NextResponse.json([]);
+  // Try real Notion search first
+  try {
+    const results = await searchCommunities(q);
+    if (results.length > 0) {
+      return NextResponse.json(results);
+    }
+  } catch (err) {
+    console.warn("[client] Notion search failed, falling back to mock:", err);
   }
 
-  const results = MOCK_COMMUNITIES.filter(
+  // Fallback: mock communities (for local dev / demo without Notion)
+  const lower = q.toLowerCase();
+  const mock = MOCK_COMMUNITIES.filter(
     (c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.instanceId.toLowerCase().includes(q)
-  );
+      c.name.toLowerCase().includes(lower) ||
+      c.instanceId.toLowerCase().includes(lower)
+  ).map((c) => ({ id: c.id, name: c.name }));
 
-  return NextResponse.json(results);
+  return NextResponse.json(mock);
 }

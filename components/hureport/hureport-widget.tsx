@@ -30,13 +30,13 @@ export function HuReportWidget() {
           aria-label={t("trigger.label", lang)}
           className={cn(
             "relative flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg transition-all duration-200",
-            "bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm",
-            isOpen && "bg-teal-700"
+            "bg-primary hover:bg-primary-hover text-white font-semibold text-sm",
+            isOpen && "bg-primary-hover"
           )}
         >
           {/* Pulse ring */}
           {!isOpen && (
-            <span className="absolute inset-0 rounded-full bg-teal-400 opacity-50 animate-ping pointer-events-none" />
+            <span className="absolute inset-0 rounded-full bg-blue-400 opacity-40 animate-ping pointer-events-none" />
           )}
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{t("trigger.label", lang)}</span>
@@ -64,7 +64,7 @@ export function HuReportWidget() {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-teal-600" />
+            <AlertTriangle className="w-5 h-5 text-primary" />
             <h2 className="text-base font-semibold text-gray-900">
               {t("header.title", lang)}
             </h2>
@@ -102,9 +102,9 @@ export function HuReportWidget() {
                 value={tab}
                 className={cn(
                   "px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   activeTab === tab
-                    ? "border-teal-600 text-teal-600"
+                    ? "border-primary text-primary"
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 )}
               >
