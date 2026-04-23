@@ -30,6 +30,15 @@ export interface ClassifyInput {
   history: ChatTurn[];
   /** How many clarifying questions Gemini has already asked. Max allowed: 1. */
   askCount: number;
+  /**
+   * Last N tickets from this module, used to detect known/already-resolved bugs.
+   * Passed to Gemini as context — never returned to the frontend.
+   */
+  recentModuleTickets?: Array<{
+    summary: string;
+    friendlyStatus: string; // "reported" | "under_review" | "developing_fix" | "resolved"
+    createdAt: string;
+  }>;
 }
 
 export interface ClassifyResult {
@@ -76,6 +85,17 @@ function buildPrompt(input: ClassifyInput): string {
     ? `\n=== MODULE DOCUMENTATION (source of truth) ===\n${input.moduleDocs}\n\nDoc URL: ${input.moduleNotionUrl ?? "N/A"}\n`
     : "\n(No specific documentation available for this module.)\n";
 
+  const recentTicketsBlock = input.recentModuleTickets?.length
+    ? `\n=== RECENT TICKETS FOR MODULE "${input.moduleDisplayName}" (last ${input.recentModuleTickets.length}, internal — do NOT share with admin) ===\n` +
+      input.recentModuleTickets
+        .map(
+          (t, i) =>
+            `${i + 1}. [${t.friendlyStatus.toUpperCase()}] ${t.summary} (${t.createdAt.slice(0, 10)})`
+        )
+        .join("\n") +
+      "\n"
+    : "";
+
   const instructions = forceClassify
     ? `You have already asked ${input.askCount} clarifying question(s). You MUST now respond with action="classify". DO NOT ask another question.`
     : `If you need ONE specific piece of technical information that would change your classification, respond with action="ask" and a single brief question.
@@ -93,7 +113,7 @@ What happened: ${input.whatHappened}
 Expected behavior: ${input.whatExpected || "not specified"}
 Blocks critical action: ${input.isBlocking ? "YES" : "no"}
 Users affected: ${input.usersAffected === "many" ? "multiple users" : "single user"}
-${historyBlock}${docsBlock}
+${historyBlock}${docsBlock}${recentTicketsBlock}
 === INSTRUCTIONS ===
 ${instructions}
 
@@ -103,6 +123,9 @@ Classifications (for action="classify"):
 - cache_browser: Typical session/browser issue (logout, incognito, clear cache, switch browser).
 - expected_behavior: The platform works as designed. The docs confirm this behavior. Include help_center_link.
 - needs_more_info: Only if a specific technical detail is missing that changes the classification.
+- feature_request: Admin is requesting a new feature or enhancement, not reporting a defect.
+- bug_known: ONLY use if the admin's report matches an OPEN ticket in the recent tickets list above (status != resolved). Explain we are working on it. Do NOT create a duplicate ticket.
+- bug_already_resolved: ONLY use if the admin's report matches a RESOLVED ticket from the last 30 days. Tell admin to refresh/update. Do NOT create a new ticket.
 
 Rules:
 - Respond ONLY in ${lang}.
@@ -124,7 +147,7 @@ Respond with ONLY valid JSON matching this schema:
 {
   "action": "ask" | "classify",
   "question": "<string, only if action=ask>",
-  "classification": "<one of 5 values, only if action=classify>",
+  "classification": "<one of 8 values, only if action=classify>",
   "summary": "<1-sentence ticket title, only if action=classify>",
   "explanation": "<string, only if action=classify>",
   "help_center_link": "<URL string or omit>",

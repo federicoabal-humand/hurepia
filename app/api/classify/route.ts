@@ -2,35 +2,33 @@
  * POST /api/classify
  * Full pipeline:
  *   1. Resolve community internally (Notion fuzzy match — INVISIBLE to frontend)
- *   2. Enrich with module docs (Notion)
+ *   2. Enrich with module docs + recent module tickets (parallel)
  *   3. Call Gemini for classification
- *   4. If action=classify + bug_confirmed:
- *      a. Check for duplicates (module-aware, 60-day window)
- *      b. If no duplicate → create Jira ticket
- *   5. Return enriched response to the frontend (never raw HUREP-XX,
- *      never internal Jira fields)
- *
- * Body: {
- *   language, module, platforms, communityNameRaw,
- *   whatHappened, whatExpected, isBlocking, usersAffected,
- *   history, askCount
- * }
+ *   4. Route based on classification:
+ *      - bug_already_resolved → find resolved ticket, return isResolved
+ *      - bug_known → find open ticket, add comment, return isDuplicate
+ *      - feature_request / configuration_error / etc. → return immediately
+ *      - bug_confirmed → duplicate check → create Jira ticket
+ *   5. Jira ticket includes: severity, friction score, cluster_id
+ *   6. Return enriched response (never raw HUREP-XX, never custom fields)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { classifyReport } from "@/lib/llm";
 import { getModuleDocs, searchClientsInputs, resolveCommunityInternal } from "@/lib/notion";
-import { searchIssuesForCommunity, createJiraIssue } from "@/lib/jira";
+import {
+  searchIssuesForCommunity,
+  createJiraIssue,
+  addJiraComment,
+  getRecentTicketsForModule,
+} from "@/lib/jira";
 import { signIssueRef } from "@/lib/token";
 import { MODULE_NOTION_MAP } from "@/lib/module-registry";
 import type { ClassifyResult } from "@/lib/llm";
+import type { JiraIssueSummary } from "@/lib/jira";
 
 // ─── Duplicate detection helpers ──────────────────────────────────────────────
 
-/**
- * Generic tokens that carry no discriminating signal.
- * Excluded from duplicate scoring.
- */
 const GENERIC_TOKENS = new Set([
   "error", "falla", "problema", "inconveniente", "issue",
   "mobile", "web", "app", "usuario", "admin", "administrador",
@@ -40,11 +38,8 @@ const GENERIC_TOKENS = new Set([
 ]);
 
 const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-/**
- * Tokenize a string for duplicate comparison.
- * - lowercase, replace _ - . with spaces, strip punctuation, split, min 3 chars
- */
 function normalizeTokens(text: string): string[] {
   return text
     .toLowerCase()
@@ -54,21 +49,16 @@ function normalizeTokens(text: string): string[] {
     .filter((w) => w.length >= 3 && !GENERIC_TOKENS.has(w));
 }
 
-/**
- * Returns true if a and b share a common substring of minLen+ chars
- * (word-level: only checks whole words ≥ minLen chars).
- */
 function shareLongWord(a: string, b: string, minLen = 15): boolean {
   const wordsA = a.toLowerCase().split(/\s+/).filter((w) => w.length >= minLen);
   const setB = new Set(b.toLowerCase().split(/\s+/));
   return wordsA.some((w) => setB.has(w));
 }
 
-/**
- * Score overlap between new report keywords and a Jira ticket title.
- * Returns { score, confidence }.
- */
-function scoreDuplicate(keywords: string[], ticketSummary: string): { score: number; confidence: "high" | "low" } {
+function scoreDuplicate(
+  keywords: string[],
+  ticketSummary: string
+): { score: number; confidence: "high" | "low" } {
   const newTokens = new Set(keywords.flatMap(normalizeTokens));
   const ticketTokens = new Set(normalizeTokens(ticketSummary));
 
@@ -76,16 +66,33 @@ function scoreDuplicate(keywords: string[], ticketSummary: string): { score: num
   for (const token of newTokens) {
     if (ticketTokens.has(token)) score += 1;
   }
-
-  // Bonus for sharing a long specific word (rare, high signal)
   const fullNew = keywords.join(" ");
   if (shareLongWord(fullNew, ticketSummary, 15)) score += 2;
 
-  return {
-    score,
-    confidence: score >= 5 ? "high" : "low",
-  };
+  return { score, confidence: score >= 5 ? "high" : "low" };
 }
+
+/** Find the best scoring match from a list of issues. Returns null if none score ≥ 3. */
+function findBestMatch(
+  keywords: string[],
+  issues: JiraIssueSummary[]
+): { issue: JiraIssueSummary; score: number; confidence: "high" | "low" } | null {
+  let best: { issue: JiraIssueSummary; score: number; confidence: "high" | "low" } | null = null;
+  for (const issue of issues) {
+    const { score, confidence } = scoreDuplicate(keywords, issue.summary);
+    if (score >= 3 && (!best || score > best.score)) {
+      best = { issue, score, confidence };
+    }
+  }
+  return best;
+}
+
+function issueTicketNumber(key: string): number | undefined {
+  const parts = key.split("-");
+  return parts.length === 2 ? parseInt(parts[1], 10) : undefined;
+}
+
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
@@ -109,7 +116,7 @@ export async function POST(req: NextRequest) {
       askCount = 0,
     } = body;
 
-    // ── 1. Resolve community internally (100% invisible to frontend) ──────────
+    // ── 1. Resolve community internally ───────────────────────────────────────
     const resolved = await resolveCommunityInternal(communityNameRaw).catch(() => ({
       matched: false as const,
     }));
@@ -118,13 +125,17 @@ export async function POST(req: NextRequest) {
       ? (resolved.canonicalName ?? communityNameRaw)
       : communityNameRaw;
 
-    let cxOwnerName: string | null = resolved.matched ? (resolved.cxOwnerName ?? null) : null;
+    const cxOwnerName: string | null = resolved.matched ? (resolved.cxOwnerName ?? null) : null;
 
-    // ── 2. Fetch module docs ──────────────────────────────────────────────────
+    // ── 2. Module metadata ────────────────────────────────────────────────────
     const moduleEntry = MODULE_NOTION_MAP[moduleSlug];
     const moduleDisplayName = moduleEntry?.displayName ?? moduleSlug;
 
-    const moduleDocs = await getModuleDocs(moduleSlug).catch(() => ({ found: false as const }));
+    // Fetch docs + recent tickets in parallel (both fail-safe)
+    const [moduleDocs, recentModuleTickets] = await Promise.all([
+      getModuleDocs(moduleSlug).catch(() => ({ found: false as const })),
+      getRecentTicketsForModule(moduleSlug, 20).catch(() => []),
+    ]);
 
     // ── 3. Call Gemini ────────────────────────────────────────────────────────
     const aiResult: ClassifyResult = await classifyReport({
@@ -141,84 +152,151 @@ export async function POST(req: NextRequest) {
       usersAffected,
       history,
       askCount,
+      recentModuleTickets: recentModuleTickets.length > 0 ? recentModuleTickets : undefined,
     });
 
-    // ── 4. If AI wants to ask a follow-up → return immediately ───────────────
+    // ── 4. Follow-up question → return immediately ─────────────────────────
     if (aiResult.action === "ask") {
       return NextResponse.json(aiResult);
     }
 
-    // ── 5. Classification decided ─────────────────────────────────────────────
     const classification = aiResult.classification;
 
-    // Non-bug → return immediately
-    if (classification !== "bug_confirmed") {
-      return NextResponse.json({ ...aiResult, cxOwnerName });
-    }
-
-    // ── 6. Bug confirmed: duplicate check ─────────────────────────────────────
+    // ── 5. Extract keywords early (shared across all bug branches) ─────────
     const keywords: string[] = aiResult.keywords?.length
       ? aiResult.keywords
       : whatHappened.toLowerCase().split(/\W+/).filter((w: string) => w.length >= 4).slice(0, 5);
 
-    const [jiraIssues, notionInputs] = await Promise.all([
-      searchIssuesForCommunity(communityName).catch(() => []),
-      searchClientsInputs(keywords).catch(() => []),
-    ]);
+    // ── 6. Fetch community issues (used for known/resolved/confirmed bugs) ──
+    // Only fetch for bug-related classifications to save API calls
+    const isBugRelated = classification === "bug_confirmed"
+      || classification === "bug_known"
+      || classification === "bug_already_resolved";
 
-    // ── Jira duplicate check (module-aware + 60-day window) ──────────────────
+    const jiraIssues = isBugRelated
+      ? await searchIssuesForCommunity(communityName).catch(() => [])
+      : [];
+
+    // ── 7. bug_already_resolved ────────────────────────────────────────────
+    if (classification === "bug_already_resolved") {
+      const resolvedCandidates = jiraIssues.filter((issue) => {
+        if (issue.status !== "resolved") return false;
+        if (
+          issue.module && issue.module !== "general" &&
+          moduleSlug !== "general" && issue.module !== moduleSlug
+        ) return false;
+        const ageMs = Date.now() - new Date(issue.createdAt).getTime();
+        return ageMs <= THIRTY_DAYS_MS;
+      });
+
+      const best = findBestMatch(keywords, resolvedCandidates);
+
+      return NextResponse.json({
+        action: "classify" as const,
+        classification,
+        explanation: aiResult.explanation,
+        isResolved: true,
+        duplicateTicketNumber: best ? issueTicketNumber(best.issue.key) : undefined,
+        duplicateFriendlyStatus: "resolved" as const,
+        cxOwnerName,
+      });
+    }
+
+    // ── 8. bug_known ──────────────────────────────────────────────────────
+    if (classification === "bug_known") {
+      const openCandidates = jiraIssues.filter((issue) => {
+        if (issue.status === "resolved") return false;
+        if (
+          issue.module && issue.module !== "general" &&
+          moduleSlug !== "general" && issue.module !== moduleSlug
+        ) return false;
+        const ageMs = Date.now() - new Date(issue.createdAt).getTime();
+        return ageMs <= SIXTY_DAYS_MS;
+      });
+
+      const best = findBestMatch(keywords, openCandidates);
+
+      if (best) {
+        const commentRef = signIssueRef(best.issue.key);
+        const ticketNumber = issueTicketNumber(best.issue.key);
+
+        // Add comment to the existing ticket (fail-safe)
+        try {
+          const lang = language === "es" ? "es" : "en";
+          const commentText = lang === "es"
+            ? `[HuReport AI] Nuevo reporte similar recibido.\nComunidad: ${communityName}\nDescripción: ${whatHappened.slice(0, 500)}`
+            : `[HuReport AI] Similar report received.\nCommunity: ${communityName}\nDescription: ${whatHappened.slice(0, 500)}`;
+          await addJiraComment(best.issue.key, commentText);
+        } catch {
+          // Don't fail if comment fails
+        }
+
+        return NextResponse.json({
+          action: "classify" as const,
+          classification,
+          explanation: aiResult.explanation,
+          isDuplicate: true,
+          duplicateConfidence: "high" as const,
+          duplicateTicketNumber: ticketNumber,
+          duplicateFriendlyStatus: best.issue.status,
+          duplicateCreatedAt: best.issue.createdAt,
+          duplicateCommentRef: commentRef,
+          cxOwnerName,
+        });
+      }
+
+      // No match found — fallback: treat as new bug_confirmed
+      // (Gemini said bug_known but we can't find it → safe to create new ticket)
+    }
+
+    // ── 9. feature_request ────────────────────────────────────────────────
+    if (classification === "feature_request") {
+      return NextResponse.json({ ...aiResult, cxOwnerName });
+    }
+
+    // ── 10. Non-bug (config_error, cache_browser, expected_behavior, needs_more_info) ──
+    if (
+      classification !== "bug_confirmed" &&
+      classification !== "bug_known" // bug_known fell through here → treat as bug_confirmed
+    ) {
+      return NextResponse.json({ ...aiResult, cxOwnerName });
+    }
+
+    // ── 11. Bug confirmed (or bug_known with no match): duplicate check ────
     const now = Date.now();
     const candidateJiraIssues = jiraIssues.filter((issue) => {
-      // F1: exclude resolved
       if (issue.status === "resolved") return false;
-      // F2: module filter — skip if modules differ (ignore "general" = untagged)
       if (
-        issue.module &&
-        issue.module !== "general" &&
-        moduleSlug !== "general" &&
-        issue.module !== moduleSlug
+        issue.module && issue.module !== "general" &&
+        moduleSlug !== "general" && issue.module !== moduleSlug
       ) return false;
-      // F3: 60-day window
       const ageMs = now - new Date(issue.createdAt).getTime();
       if (ageMs > SIXTY_DAYS_MS) return false;
       return true;
     });
 
-    const jiraDup = (() => {
-      let best: { issue: typeof candidateJiraIssues[0]; score: number; confidence: "high" | "low" } | null = null;
-      for (const issue of candidateJiraIssues) {
-        const { score, confidence } = scoreDuplicate(keywords, issue.summary);
-        if (score >= 3 && (!best || score > best.score)) {
-          best = { issue, score, confidence };
-        }
-      }
-      return best;
-    })();
+    const jiraDup = findBestMatch(keywords, candidateJiraIssues);
 
     if (jiraDup) {
       const { issue, confidence } = jiraDup;
-      const keyParts = issue.key.split("-");
-      const dupTicketNumber = keyParts.length === 2 ? parseInt(keyParts[1], 10) : undefined;
+      const dupTicketNumber = issueTicketNumber(issue.key);
 
-      // Return ONLY safe fields — no internal Jira data
       return NextResponse.json({
-        // Minimal classification context for the frontend badge
         action: "classify" as const,
         classification: aiResult.classification,
         explanation: aiResult.explanation,
-        // Duplicate block (7 safe fields only)
         isDuplicate: true,
         duplicateConfidence: confidence,
         duplicateTicketNumber: dupTicketNumber,
         duplicateFriendlyStatus: issue.status,
         duplicateCreatedAt: issue.createdAt,
         duplicateCommentRef: signIssueRef(issue.key),
-        // cxOwnerName if needed
         cxOwnerName,
       });
     }
 
-    // ── Notion duplicate check ────────────────────────────────────────────────
+    // ── Notion duplicate check ────────────────────────────────────────────
+    const notionInputs = await searchClientsInputs(keywords).catch(() => []);
     const notionDup = notionInputs.find((item) => {
       const { score } = scoreDuplicate(keywords, item.title);
       return score >= 3;
@@ -236,15 +314,18 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── 7. No duplicate → create Jira ticket ─────────────────────────────────
+    // ── 12. No duplicate → create Jira ticket ─────────────────────────────
     const summary = (aiResult.summary ?? whatHappened).slice(0, 120);
 
-    // Compute friction score for internal triage (not shown in frontend badge)
     const severidad = aiResult.severidad ?? (isBlocking && usersAffected === "many" ? "alta" : "media");
     const frictionScore =
       (severidad === "alta" ? 3 : severidad === "media" ? 2 : 1) +
       (isBlocking ? 2 : 0) +
       (usersAffected === "many" ? 1 : 0);
+
+    // cluster_id groups similar issues for analytics (never shown to admin)
+    const actualClassification = classification === "bug_known" ? "bug_confirmed" : classification;
+    const clusterId = `${moduleSlug}_${actualClassification}`;
 
     const description = [
       `Module: ${moduleDisplayName}`,
@@ -254,8 +335,10 @@ export async function POST(req: NextRequest) {
       whatExpected ? `Expected: ${whatExpected}` : "",
       `Blocking: ${isBlocking ? "Yes" : "No"}`,
       `Users affected: ${usersAffected}`,
+      `---`,
       `Severity: ${severidad}`,
-      `Friction score: ${frictionScore}/6`,
+      `Friction Score: ${frictionScore}/6`,
+      `Cluster: ${clusterId}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -275,6 +358,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ...aiResult,
+      // Always use "bug_confirmed" for the frontend even if bug_known fell through
+      classification: actualClassification,
       cxOwnerName,
       ticketNumber,
       commentRef,
