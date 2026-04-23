@@ -325,6 +325,62 @@ export async function searchIssuesForCommunity(
   }
 }
 
+// ─── Search issues by module (cross-community) ───────────────────────────────
+
+/**
+ * Search open HUREP Bug issues by module only (no community filter).
+ * Used for cross-community duplicate detection: when two different communities
+ * report the same bug, the second one finds the first community's ticket.
+ * Limited to last 60 days. Never returns resolved tickets.
+ */
+export async function searchIssuesByModule(
+  moduleSlug: string,
+  limit = 30
+): Promise<JiraIssueSummary[]> {
+  const moduleOptionId = MODULE_TO_JIRA_ID[moduleSlug];
+  const jqlParts = [
+    `project = ${JIRA.PROJECT_KEY}`,
+    `issuetype = Bug`,
+    `statusCategory != Done`,
+    `created >= -60d`,
+  ];
+  if (moduleOptionId && moduleSlug !== "general") {
+    jqlParts.push(`"Mini App" = "${moduleOptionId}"`);
+  }
+  const jql = jqlParts.join(" AND ") + " ORDER BY created DESC";
+  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
+  const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${limit}&fields=${fields}`;
+
+  try {
+    const res = await fetch(url, { headers: headers() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.issues ?? []).map(
+      (issue: { key: string; fields: { summary: string; status: { name: string; statusCategory?: { key?: string } }; created: string; [key: string]: unknown } }) => {
+        const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
+        const optionId = Array.isArray(miniAppRaw) && miniAppRaw[0]?.id ? String(miniAppRaw[0].id) : null;
+        const mod = optionId && JIRA_OPTION_TO_MODULE[optionId]
+          ? JIRA_OPTION_TO_MODULE[optionId]
+          : Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
+            ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
+            : "general";
+        const statusName = issue.fields.status.name;
+        const categoryKey = issue.fields.status.statusCategory?.key;
+        return {
+          key: issue.key,
+          summary: issue.fields.summary,
+          module: mod,
+          status: mapJiraStatusToFriendly(statusName, categoryKey),
+          createdAt: issue.fields.created,
+        };
+      }
+    );
+  } catch (err) {
+    console.error("[jira] searchIssuesByModule error:", err);
+    return [];
+  }
+}
+
 // ─── Add comment ──────────────────────────────────────────────────────────────
 
 export async function addJiraComment(

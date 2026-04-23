@@ -21,6 +21,7 @@ import { classifyReport, detectLanguage, extractAndTranslateKeywords } from "@/l
 import { getModuleDocs, searchClientsInputs, resolveCommunityInternal } from "@/lib/notion";
 import {
   searchIssuesForCommunity,
+  searchIssuesByModule,
   createJiraIssue,
   addJiraComment,
   getRecentTicketsForModule,
@@ -363,12 +364,28 @@ export async function POST(req: NextRequest) {
         openCandidates
       );
 
-      if (best) {
-        const commentRef = signIssueRef(best.issue.key);
-        const ticketNumber = issueTicketNumber(best.issue.key);
+      // If no match in community tickets, try module-wide cross-community search
+      let crossCommunityBest = best;
+      if (!crossCommunityBest) {
+        const moduleWideIssues = await searchIssuesByModule(moduleSlug, 30).catch(() => []);
+        // Exclude tickets already labeled for this community
+        const crossCandidates = moduleWideIssues.filter(
+          (i) => i.status !== "resolved" && i.module === moduleSlug
+        );
+        crossCommunityBest = findBestMatchMultiLang(
+          allKeywordsForMatch.keywordsOriginal,
+          allKeywordsForMatch.keywordsEs,
+          allKeywordsForMatch.keywordsEn,
+          crossCandidates
+        );
+      }
 
-        // Cross-community linking
-        await addCommunityToAffectedClients(best.issue.key, communityNameRaw).catch(() => {});
+      if (crossCommunityBest) {
+        const commentRef = signIssueRef(crossCommunityBest.issue.key);
+        const ticketNumber = issueTicketNumber(crossCommunityBest.issue.key);
+
+        // Cross-community linking: add this community to the existing ticket's labels
+        await addCommunityToAffectedClients(crossCommunityBest.issue.key, communityNameRaw).catch(() => {});
 
         // Multi-language comment
         try {
@@ -378,7 +395,7 @@ export async function POST(req: NextRequest) {
             whatExpected,
             detectedLanguage,
           });
-          await addJiraComment(best.issue.key, commentText);
+          await addJiraComment(crossCommunityBest.issue.key, commentText);
         } catch {
           // Don't fail if comment fails
         }
@@ -390,14 +407,14 @@ export async function POST(req: NextRequest) {
           isDuplicate: true,
           duplicateConfidence: "high" as const,
           duplicateTicketNumber: ticketNumber,
-          duplicateFriendlyStatus: best.issue.status,
-          duplicateCreatedAt: best.issue.createdAt,
+          duplicateFriendlyStatus: crossCommunityBest.issue.status,
+          duplicateCreatedAt: crossCommunityBest.issue.createdAt,
           duplicateCommentRef: commentRef,
           cxOwnerName,
         });
       }
 
-      // No match found — fallback: treat as new bug_confirmed
+      // No match found anywhere — fallback: treat as new bug_confirmed
     }
 
     // ── 12. feature_request ────────────────────────────────────────────────
@@ -554,6 +571,38 @@ export async function POST(req: NextRequest) {
         duplicateCommentRef: undefined,
         cxOwnerName,
       });
+    }
+
+    // ── Cross-community duplicate check (module-wide, no community filter) ──
+    // Only if community-specific + Notion checks found nothing
+    {
+      const moduleWide = await searchIssuesByModule(moduleSlug, 30).catch(() => []);
+      const crossDup = findBestMatchMultiLang(
+        allKeywordsForMatch.keywordsOriginal,
+        allKeywordsForMatch.keywordsEs,
+        allKeywordsForMatch.keywordsEn,
+        moduleWide.filter((i) => i.status !== "resolved")
+      );
+      if (crossDup) {
+        const { issue, confidence } = crossDup;
+        await addCommunityToAffectedClients(issue.key, communityNameRaw).catch(() => {});
+        await addJiraComment(
+          issue.key,
+          buildDuplicateComment({ communityNameRaw, whatHappened, whatExpected, detectedLanguage })
+        ).catch(() => {});
+        return NextResponse.json({
+          action: "classify" as const,
+          classification: aiResult.classification,
+          explanation: aiResult.explanation,
+          isDuplicate: true,
+          duplicateConfidence: confidence,
+          duplicateTicketNumber: issueTicketNumber(issue.key),
+          duplicateFriendlyStatus: issue.status,
+          duplicateCreatedAt: issue.createdAt,
+          duplicateCommentRef: signIssueRef(issue.key),
+          cxOwnerName,
+        });
+      }
     }
 
     // ── 15. No duplicate → create Jira ticket ─────────────────────────────
