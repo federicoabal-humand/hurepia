@@ -12,6 +12,8 @@ import {
   RefreshCw,
   HelpCircle,
   RefreshCcw,
+  Lightbulb,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
@@ -39,6 +41,10 @@ interface MyReportsTabProps {
   lang: Lang;
   communityName: string;
   isWidgetOpen: boolean;
+  /** If present, fetches tickets by instanceId label (most precise) */
+  instanceId?: number;
+  /** If present and no instanceId, fetches tickets by reporter email */
+  adminEmail?: string;
 }
 
 const STATUS_STYLES: Record<FriendlyStatus, string> = {
@@ -54,11 +60,14 @@ const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
   cache_browser: RefreshCw,
   expected_behavior: CheckCircle,
   needs_more_info: HelpCircle,
+  feature_request: Lightbulb,
+  bug_known: Wrench,
+  bug_already_resolved: CheckCircle,
 };
 
 const POLL_INTERVAL_MS = 30_000;
 
-export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTabProps) {
+export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWidgetOpen }: MyReportsTabProps) {
   const [tickets, setTickets] = useState<TicketResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -76,10 +85,16 @@ export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTab
     if (isBackground) setRefreshing(true);
     else setLoading(true);
     try {
-      const params = communityName
-        ? `?communityName=${encodeURIComponent(communityName)}`
-        : "";
-      const res = await fetch(`/api/reports${params}`);
+      // Build query params in priority order: instanceId > adminEmail > communityName
+      const sp = new URLSearchParams();
+      if (instanceId) {
+        sp.set("instanceId", String(instanceId));
+      } else if (adminEmail) {
+        sp.set("adminEmail", adminEmail);
+      } else if (communityName) {
+        sp.set("communityName", communityName);
+      }
+      const res = await fetch(`/api/reports?${sp.toString()}`);
       const data: TicketResponse[] = await res.json();
       if (mountedRef.current) setTickets(data);
     } catch {
@@ -90,7 +105,7 @@ export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTab
         setRefreshing(false);
       }
     }
-  }, [communityName]);
+  }, [communityName, instanceId, adminEmail]);
 
   // Start/stop polling based on widget open state and page visibility
   const startPolling = useCallback(() => {

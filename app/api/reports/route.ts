@@ -1,11 +1,14 @@
 /**
- * GET /api/reports?communityName=Naranja+X
- * Returns HUREP issues for a community.
- * - Resolves the nameRaw against Notion internally (invisible to frontend).
- * - If matched: queries Jira by canonical name (sanitized label).
- * - If not matched: queries Jira by the raw name as typed.
- * - ticketNumber is the sequential display number (1, 2, 3…).
- * - commentRef is a signed token — NEVER returns the raw HUREP-XX key.
+ * GET /api/reports
+ *
+ * Query params (in priority order):
+ *   instanceId       — most precise; filters by "instanceId_XXXX" label
+ *   adminEmail       — filters by reporter email
+ *   communityName    — filters by community name label (sanitized)
+ *
+ * Returns HUREP issues for the requesting community.
+ * - commentRef is a signed token; raw HUREP-XX keys are NEVER returned.
+ * - ticketNumber is a sequential display number (1, 2, 3…).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { searchIssuesForCommunity } from "@/lib/jira";
@@ -13,32 +16,40 @@ import { signIssueRef } from "@/lib/token";
 import { resolveCommunityInternal } from "@/lib/notion";
 
 export async function GET(req: NextRequest) {
-  const communityNameRaw = req.nextUrl.searchParams.get("communityName") ?? "";
+  const sp = req.nextUrl.searchParams;
+  const instanceIdStr = sp.get("instanceId") ?? "";
+  const adminEmail = sp.get("adminEmail") ?? "";
+  const communityNameRaw = sp.get("communityName") ?? "";
 
-  if (!communityNameRaw.trim()) {
+  const instanceId = instanceIdStr ? parseInt(instanceIdStr, 10) : undefined;
+
+  // Must have at least one filter
+  if (!instanceId && !adminEmail.trim() && !communityNameRaw.trim()) {
     return NextResponse.json(
-      { error: "communityName is required" },
+      { error: "communityName, instanceId, or adminEmail is required" },
       { status: 400 }
     );
   }
 
-  // ── Resolve community internally ────────────────────────────────────────────
-  // If name matches Notion → use canonical name for JQL (better accuracy).
-  // If no match → use raw name as typed (ticket still visible to this user).
-  // Match result is NEVER sent to the frontend.
-  let communityName = communityNameRaw;
-  try {
-    const resolved = await resolveCommunityInternal(communityNameRaw);
-    if (resolved.matched && resolved.canonicalName) {
-      communityName = resolved.canonicalName;
+  // ── If using communityName: try to resolve via Notion for better accuracy ──
+  let resolvedCommunityName = communityNameRaw;
+  if (!instanceId && !adminEmail && communityNameRaw) {
+    try {
+      const notionMatch = await resolveCommunityInternal(communityNameRaw);
+      if (notionMatch.matched && notionMatch.canonicalName) {
+        resolvedCommunityName = notionMatch.canonicalName;
+      }
+    } catch {
+      // Notion unavailable — use raw name (fail open)
     }
-  } catch {
-    // Notion unavailable — use raw name (fail open)
   }
 
-  // ── Fetch Jira tickets filtered by community ────────────────────────────────
   try {
-    const issues = await searchIssuesForCommunity(communityName);
+    const issues = await searchIssuesForCommunity({
+      instanceId,
+      adminEmail: adminEmail || undefined,
+      communityName: !instanceId && !adminEmail ? resolvedCommunityName : undefined,
+    });
 
     const tickets = issues.map((issue, idx) => ({
       id: issue.key,
