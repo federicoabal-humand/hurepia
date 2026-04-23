@@ -46,6 +46,8 @@ export function HuReportWidget() {
   // Community state — either from demo preset or localStorage gate
   const [community, setCommunity] = useState<StoredCommunity | null>(null);
   const [demoContext, setDemoContext] = useState<AdminContext | null>(null);
+  // Ref of the last ticket created — passed to MyReportsTab for immediate lookup
+  const [lastCreatedRef, setLastCreatedRef] = useState<string | undefined>(undefined);
 
   // Hydrate on mount: detect demo mode first, then localStorage
   useEffect(() => {
@@ -250,6 +252,7 @@ export function HuReportWidget() {
                 communityNameRaw={activeCommunityName ?? ""}
                 instanceId={demoContext?.instanceId}
                 adminEmail={demoContext?.adminEmail}
+                onTicketCreated={setLastCreatedRef}
               />
             </Tabs.Content>
 
@@ -263,6 +266,7 @@ export function HuReportWidget() {
                 instanceId={demoContext?.instanceId}
                 adminEmail={demoContext?.adminEmail}
                 isWidgetOpen={isOpen}
+                freshRef={lastCreatedRef}
               />
             </Tabs.Content>
           </Tabs.Root>

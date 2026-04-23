@@ -46,6 +46,8 @@ interface MyReportsTabProps {
   instanceId?: number;
   /** If present and no instanceId, fetches tickets by reporter email */
   adminEmail?: string;
+  /** commentRef of a just-created ticket; passed to /api/reports for immediate lookup */
+  freshRef?: string;
 }
 
 const STATUS_STYLES: Record<FriendlyStatus, string> = {
@@ -74,6 +76,7 @@ export function MyReportsTab({
   instanceId,
   adminEmail,
   isWidgetOpen,
+  freshRef,
 }: MyReportsTabProps) {
   const [tickets, setTickets] = useState<TicketResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +95,7 @@ export function MyReportsTab({
   const mountedRef = useRef(true);
 
   const fetchTickets = useCallback(
-    async (isBackground = false) => {
+    async (isBackground = false, retryFreshRef?: string) => {
       if (!mountedRef.current) return;
       if (isBackground) setRefreshing(true);
       else setLoading(true);
@@ -106,6 +109,11 @@ export function MyReportsTab({
         } else if (communityName) {
           sp.set("communityName", communityName);
         }
+        // Pass freshRef so the server can fetch the new ticket directly by key,
+        // bypassing Jira JQL indexing delay for recently created tickets
+        const ref = retryFreshRef ?? freshRef;
+        if (ref) sp.set("freshRef", ref);
+
         const res = await fetch(`/api/reports?${sp.toString()}`);
         const data: TicketResponse[] = await res.json();
         if (mountedRef.current) setTickets(data);
@@ -118,8 +126,14 @@ export function MyReportsTab({
         }
       }
     },
-    [communityName, instanceId, adminEmail]
+    [communityName, instanceId, adminEmail, freshRef]
   );
+
+  // When a fresh ticket ref arrives, trigger an immediate refresh
+  useEffect(() => {
+    if (freshRef) fetchTickets(true, freshRef);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freshRef]);
 
   // Start/stop polling based on widget open state and page visibility
   const startPolling = useCallback(() => {

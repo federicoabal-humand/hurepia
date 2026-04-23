@@ -15,6 +15,8 @@ interface ReportTabProps {
   instanceId?: number;
   /** Used as fallback filter when no instanceId */
   adminEmail?: string;
+  /** Called when a new ticket is created, passes commentRef for immediate lookup */
+  onTicketCreated?: (commentRef: string) => void;
 }
 
 interface FormState {
@@ -105,7 +107,7 @@ export interface ResolvedResult {
 
 type Step = "form" | "loading" | "asking" | "result" | "error";
 
-export function ReportTab({ lang, communityNameRaw, instanceId, adminEmail }: ReportTabProps) {
+export function ReportTab({ lang, communityNameRaw, instanceId, adminEmail, onTicketCreated }: ReportTabProps) {
   const [step, setStep] = useState<Step>("form");
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [dragOver, setDragOver] = useState(false);
@@ -219,6 +221,10 @@ export function ReportTab({ lang, communityNameRaw, instanceId, adminEmail }: Re
         isDuplicateCI: data.isDuplicateCI,
         message: data.message,
       });
+      // Notify widget that a new ticket was created so Mis Reportes can fetch it immediately
+      if (data.commentRef && !data.isDuplicate && !data.isResolved) {
+        onTicketCreated?.(data.commentRef);
+      }
       setStep("result");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";

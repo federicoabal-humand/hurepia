@@ -12,14 +12,47 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { searchIssuesForCommunity } from "@/lib/jira";
-import { signIssueRef } from "@/lib/token";
+import { signIssueRef, verifyIssueRef } from "@/lib/token";
 import { resolveCommunityInternal } from "@/lib/notion";
+import { mapJiraStatusToFriendly } from "@/lib/mappings";
+
+/** Direct Jira REST call — bypasses JQL indexing delay for freshly created tickets */
+async function fetchIssueByKey(jiraKey: string) {
+  const base = process.env.JIRA_BASE_URL ?? "https://humand.atlassian.net";
+  const b64 = Buffer.from(
+    `${process.env.JIRA_EMAIL}:${process.env.JIRA_API_TOKEN}`
+  ).toString("base64");
+  const headers = {
+    Authorization: `Basic ${b64}`,
+    Accept: "application/json",
+  };
+  try {
+    const res = await fetch(
+      `${base}/rest/api/3/issue/${jiraKey}?fields=summary,status,created,customfield_10059`,
+      { headers }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const statusName: string = data.fields?.status?.name ?? "";
+    const categoryKey: string = data.fields?.status?.statusCategory?.key ?? "";
+    return {
+      key: jiraKey,
+      summary: data.fields?.summary ?? "",
+      module: "general" as string,
+      status: mapJiraStatusToFriendly(statusName, categoryKey),
+      createdAt: data.fields?.created ?? new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const instanceIdStr = sp.get("instanceId") ?? "";
   const adminEmail = sp.get("adminEmail") ?? "";
   const communityNameRaw = sp.get("communityName") ?? "";
+  const freshRef = sp.get("freshRef") ?? "";
 
   const instanceId = instanceIdStr ? parseInt(instanceIdStr, 10) : undefined;
 
@@ -50,6 +83,16 @@ export async function GET(req: NextRequest) {
       adminEmail: adminEmail || undefined,
       communityName: !instanceId && !adminEmail ? resolvedCommunityName : undefined,
     });
+
+    // If a freshRef was passed, resolve the key and inject the issue if JQL hasn't indexed it yet
+    let freshKey: string | null = null;
+    if (freshRef) {
+      freshKey = verifyIssueRef(freshRef);
+      if (freshKey && !issues.some((i) => i.key === freshKey)) {
+        const fresh = await fetchIssueByKey(freshKey);
+        if (fresh) issues.unshift(fresh);
+      }
+    }
 
     const tickets = issues.map((issue, idx) => {
       const commentRef = signIssueRef(issue.key);
