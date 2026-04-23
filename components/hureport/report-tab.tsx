@@ -11,6 +11,10 @@ import { AiResultCard } from "./ai-result-card";
 interface ReportTabProps {
   lang: Lang;
   communityNameRaw: string;
+  /** Used to label the Jira ticket so it appears in Mis Reportes filtered by instanceId */
+  instanceId?: number;
+  /** Used as fallback filter when no instanceId */
+  adminEmail?: string;
 }
 
 interface FormState {
@@ -101,7 +105,7 @@ export interface ResolvedResult {
 
 type Step = "form" | "loading" | "asking" | "result" | "error";
 
-export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
+export function ReportTab({ lang, communityNameRaw, instanceId, adminEmail }: ReportTabProps) {
   const [step, setStep] = useState<Step>("form");
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [dragOver, setDragOver] = useState(false);
@@ -163,6 +167,9 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
           usersAffected: form.usersAffected,
           history: currentHistory,
           askCount: currentAskCount,
+          // Required for Jira label so the ticket appears in Mis Reportes
+          ...(instanceId != null ? { instanceId } : {}),
+          ...(adminEmail ? { adminEmail } : {}),
         }),
       });
 

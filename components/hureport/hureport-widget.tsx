@@ -248,6 +248,8 @@ export function HuReportWidget() {
               <ReportTab
                 lang={lang}
                 communityNameRaw={activeCommunityName ?? ""}
+                instanceId={demoContext?.instanceId}
+                adminEmail={demoContext?.adminEmail}
               />
             </Tabs.Content>
 

@@ -164,8 +164,16 @@ export async function POST(req: NextRequest) {
       usersAffected = "1",
       history = [],
       askCount = 0,
-      instanceId,
+      instanceId: rawInstanceId,
     } = body;
+
+    // Coerce to number: frontend may send as string or number
+    const instanceId: number | undefined =
+      rawInstanceId != null
+        ? typeof rawInstanceId === "number"
+          ? rawInstanceId
+          : parseInt(String(rawInstanceId), 10) || undefined
+        : undefined;
 
     // ── 1. Detect language + extract keywords ─────────────────────────────────
     const detectedLanguage = await detectLanguage(
