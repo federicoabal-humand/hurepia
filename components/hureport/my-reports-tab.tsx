@@ -84,12 +84,9 @@ export function MyReportsTab({
   const [sending, setSending] = useState(false);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
-  // New state for phases 4/5
+  // State for remove-from-history (phase 5)
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
-  const [addingAffectedId, setAddingAffectedId] = useState<string | null>(null);
-  const [affectedCommunityText, setAffectedCommunityText] = useState("");
-  const [affectedAddedIds, setAffectedAddedIds] = useState<Set<string>>(new Set());
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
@@ -205,25 +202,6 @@ export function MyReportsTab({
       /* ignore */
     } finally {
       setRemovingId(null);
-    }
-  };
-
-  const handleAddAffectedCommunity = async (ticket: TicketResponse) => {
-    if (!affectedCommunityText.trim()) return;
-    try {
-      await fetch(`/api/tickets/${ticket.commentRef}/affected-client`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          communityNameToAdd: affectedCommunityText.trim(),
-          adminEmail: adminEmail ?? "",
-        }),
-      });
-      setAffectedAddedIds((prev) => new Set([...prev, ticket.id]));
-      setAddingAffectedId(null);
-      setAffectedCommunityText("");
-    } catch {
-      /* ignore */
     }
   };
 
@@ -399,80 +377,6 @@ export function MyReportsTab({
                   >
                     <Plus className="w-3.5 h-3.5" />
                     {t("reports.addInfo", lang)}
-                  </button>
-                )}
-
-                {/* Add affected community */}
-                {affectedAddedIds.has(ticket.id) ? (
-                  <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
-                    <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                    {lang === "es"
-                      ? "Comunidad agregada al ticket"
-                      : lang === "pt"
-                      ? "Comunidade adicionada ao ticket"
-                      : lang === "fr"
-                      ? "Communauté ajoutée au ticket"
-                      : "Community added to ticket"}
-                  </div>
-                ) : addingAffectedId === ticket.id ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium text-gray-600">
-                      {lang === "es"
-                        ? "¿Hay otras comunidades afectadas?"
-                        : lang === "pt"
-                        ? "Há outras comunidades afetadas?"
-                        : lang === "fr"
-                        ? "D'autres communautés sont-elles concernées ?"
-                        : "Are other communities affected?"}
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        value={affectedCommunityText}
-                        onChange={(e) => setAffectedCommunityText(e.target.value)}
-                        placeholder={
-                          lang === "es"
-                            ? "Nombre de la comunidad"
-                            : lang === "pt"
-                            ? "Nome da comunidade"
-                            : lang === "fr"
-                            ? "Nom de la communauté"
-                            : "Community name"
-                        }
-                        className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddAffectedCommunity(ticket)}
-                        disabled={!affectedCommunityText.trim()}
-                        className="px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors"
-                      >
-                        {lang === "es" ? "Agregar" : "Add"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddingAffectedId(null);
-                          setAffectedCommunityText("");
-                        }}
-                        className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs hover:bg-gray-50 transition-colors"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAddingAffectedId(ticket.id)}
-                    className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
-                  >
-                    {lang === "es"
-                      ? "¿Otras comunidades afectadas?"
-                      : lang === "pt"
-                      ? "Outras comunidades afetadas?"
-                      : lang === "fr"
-                      ? "Autres communautés ?"
-                      : "Other communities affected?"}
                   </button>
                 )}
 
