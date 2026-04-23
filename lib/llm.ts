@@ -352,6 +352,42 @@ ${historyBlock}${docsBlock}${recentTicketsBlock}
 === INSTRUCTIONS ===
 ${instructions}
 
+JERARQUÍA DE FUENTES PARA CLASIFICAR (CRÍTICA):
+
+Para decidir la clasificación, usá las fuentes en este ORDEN de prioridad:
+
+1. DOCUMENTACIÓN OFICIAL DEL MÓDULO (moduleDocs, si está disponible)
+   → Fuente principal. Si la doc dice que algo requiere configuración, clasificá como configuration_error.
+   → Si la doc dice que es comportamiento esperado, clasificá como expected_behavior.
+
+2. PATTERNS DE CONFIGURACIÓN CONOCIDOS
+   → Si el reporte contiene frases como "no aparecen", "no tiene permisos", "no puede ver", "no se asigna", "no carga para este usuario específico" → PROBABLEMENTE es configuration_error.
+   → Si solo afecta a 1 usuario y no bloquea una acción crítica: sesgo fuerte a configuration_error o expected_behavior.
+
+3. TICKETS SIMILARES DEL MÓDULO (recentTickets, si están disponibles)
+   → Usalos SOLO para detectar duplicados exactos (bug_known, bug_already_resolved).
+   → NO uses los tickets recientes para inferir la clasificación del nuevo reporte. Que existan 5 bugs abiertos de time_off NO significa que el nuevo reporte sea bug.
+
+REGLA: si el reporte matchea un pattern de configuration_error O expected_behavior, clasificalo así ANTES de considerar bug_confirmed, aunque haya tickets similares abiertos en el contexto.
+
+bug_confirmed SOLO si:
+- La doc dice que la feature existe Y debería funcionar, Y
+- El admin describe un comportamiento claramente incorrecto (error al guardar, pantalla en blanco, pérdida de datos), Y
+- Afecta a más de un usuario O bloquea acciones críticas.
+
+PATTERNS DE CONFIGURATION_ERROR (clasificá así cuando aplique):
+- "no aparecen los días/registros/items de X usuario"
+- "un empleado no puede acceder a Y"
+- "falta información en el perfil de Z"
+- "no se ven los feriados/políticas/reglas"
+- "el sistema no aplica la regla para este caso"
+
+PATTERNS DE EXPECTED_BEHAVIOR (clasificá así cuando aplique):
+- "los mensajes eliminados desaparecen"
+- "los comentarios en X se ven de tal forma"
+- "el orden de Y es este otro"
+- "no puedo hacer X acción" cuando la doc indica que esa acción no existe
+
 Classifications (for action="classify"):
 - bug_confirmed: Confirmed software defect in the Humand platform. The behavior contradicts the docs or is clearly broken.
 - configuration_error: The docs explain how to configure it and the admin clearly hasn't done so. Return specific steps from the docs.
