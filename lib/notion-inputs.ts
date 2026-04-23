@@ -135,7 +135,8 @@ export async function searchSimilarClientInputsMock(
   Array<{ jiraKey: string; summary: string; currentCommunities: string[]; score: number }>
 > {
   try {
-    const jql = `project = ${JIRA.PROJECT_KEY} AND labels = "CI-Mock" AND labels = "module-${moduleSlug}" AND statusCategory != Done AND created >= -90d ORDER BY created DESC`;
+    // customfield_10046 is a labels field — use cf[10046] = for exact value match
+    const jql = `project = ${JIRA.PROJECT_KEY} AND cf[10046] = "CI-Mock" AND cf[10046] = "module-${moduleSlug}" AND statusCategory != Done AND created >= -90d ORDER BY created DESC`;
     const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=20&fields=summary,${JIRA.FIELDS.AFFECTED_CLIENTS}`;
     const res = await fetch(url, { headers: headers() });
     if (!res.ok) return [];

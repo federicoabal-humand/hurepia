@@ -258,13 +258,15 @@ export async function searchIssuesForCommunity(
   const jqlParts = [`project = ${JIRA.PROJECT_KEY}`, `issuetype = Bug`];
 
   if (p.instanceId) {
-    jqlParts.push(`labels = "instanceId_${p.instanceId}"`);
+    // instanceId stored as label value in customfield_10046; must use = (not ~) for labels fields
+    jqlParts.push(`cf[10046] = "instanceId_${p.instanceId}"`);
   } else if (p.adminEmail) {
     const safeEmail = p.adminEmail.replace(/"/g, '\\"');
     jqlParts.push(`reporter = "${safeEmail}"`);
   } else if (p.communityName?.trim()) {
     const safe = sanitizeLabelValue(p.communityName).replace(/"/g, '\\"');
-    jqlParts.push(`"Affected Clients" ~ "${safe}"`);
+    // customfield_10046 is a labels field; = does exact-value match against any element
+    jqlParts.push(`cf[10046] = "${safe}"`);
   } else {
     // No filter → return empty (never dump all tickets)
     return [];
