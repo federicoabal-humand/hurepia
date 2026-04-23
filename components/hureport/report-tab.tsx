@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Upload, X, Loader2, Send, AlertTriangle, MessageCircle } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { Upload, X, Loader2, Send, AlertTriangle, MessageCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODULES, PLATFORMS } from "@/lib/mappings";
 import { t, type Lang } from "@/lib/i18n";
@@ -58,6 +58,9 @@ export interface ClassifyApiResponse {
   duplicateCreatedAt?: string;
   duplicateCommentRef?: string;
   cxOwnerName?: string | null;
+  // Severity (only present for bug_confirmed)
+  severidad?: "alta" | "media" | "baja";
+  frictionScore?: number;
 }
 
 // What we pass to AiResultCard
@@ -76,9 +79,10 @@ export interface ResolvedResult {
   helpCenterLink?: string;
   nextAction?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
   cxOwnerName?: string | null;
+  severidad?: "alta" | "media" | "baja";
 }
 
-type Step = "form" | "loading" | "asking" | "result";
+type Step = "form" | "loading" | "asking" | "result" | "error";
 
 export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
   const [step, setStep] = useState<Step>("form");
@@ -92,6 +96,10 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
   const [askCount, setAskCount] = useState(0);
   const [followUpAnswer, setFollowUpAnswer] = useState("");
   const [resolved, setResolved] = useState<ResolvedResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Saved args for retry after error
+  const retryArgsRef = useRef<{ history: ChatTurn[]; askCount: number } | null>(null);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -119,8 +127,10 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
     await runClassify([], 0);
   }
 
-  async function runClassify(currentHistory: ChatTurn[], currentAskCount: number) {
+  const runClassify = useCallback(async (currentHistory: ChatTurn[], currentAskCount: number) => {
     setStep("loading");
+    setErrorMessage(null);
+    retryArgsRef.current = { history: currentHistory, askCount: currentAskCount };
     try {
       const res = await fetch("/api/classify", {
         method: "POST",
@@ -138,6 +148,8 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
           askCount: currentAskCount,
         }),
       });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data: ClassifyApiResponse = await res.json();
 
@@ -165,12 +177,15 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
         helpCenterLink: data.help_center_link,
         nextAction: data.next_action,
         cxOwnerName: data.cxOwnerName,
+        severidad: data.severidad,
       });
       setStep("result");
-    } catch {
-      setStep("form");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setErrorMessage(msg);
+      setStep("error");
     }
-  }
+  }, [lang, form, communityNameRaw]);
 
   // ─── Follow-up answer ─────────────────────────────────────────────────────
 
@@ -196,7 +211,55 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
     setAskCount(0);
     setFollowUpAnswer("");
     setResolved(null);
+    setErrorMessage(null);
+    retryArgsRef.current = null;
     setStep("form");
+  }
+
+  // ─── Retry after error ────────────────────────────────────────────────────
+
+  function handleRetry() {
+    const args = retryArgsRef.current;
+    if (args) {
+      runClassify(args.history, args.askCount);
+    } else {
+      runClassify([], 0);
+    }
+  }
+
+  // ─── Error ───────────────────────────────────────────────────────────────
+
+  if (step === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4 text-center px-4">
+        <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+          <AlertTriangle className="w-6 h-6 text-red-500" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-gray-800">
+            {lang === "es" ? "No se pudo analizar el reporte" : "Could not analyze the report"}
+          </p>
+          <p className="text-xs text-gray-400">
+            {lang === "es" ? "Verificá tu conexión e intentá de nuevo." : "Check your connection and try again."}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleRetry}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-hover transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            {lang === "es" ? "Reintentar" : "Retry"}
+          </button>
+          <button
+            onClick={reset}
+            className="px-4 py-2 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50 transition-colors"
+          >
+            {lang === "es" ? "Volver al formulario" : "Back to form"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // ─── Loading ──────────────────────────────────────────────────────────────

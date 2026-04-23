@@ -161,6 +161,15 @@ const TRANSLATIONS = {
     "result.contactCx": "Contactá a tu CX Manager",
     "result.contactCxName": "Contactá a",
     "result.contactCxFallback": "Contactá con tu Manager/Owner de cuenta por los canales oficiales de Humand.",
+
+    // Severity
+    "severity.alta": "Impacto alto",
+    "severity.media": "Impacto medio",
+    "severity.baja": "Impacto bajo",
+
+    // Demo mode
+    "demo.badge": "DEMO",
+    "demo.reportingAs": "Demostrando como",
   },
 
   en: {
@@ -323,6 +332,15 @@ const TRANSLATIONS = {
     "result.contactCx": "Contact your CX Manager",
     "result.contactCxName": "Contact",
     "result.contactCxFallback": "Reach out to your Account Manager/Owner through the official Humand channels.",
+
+    // Severity
+    "severity.alta": "High impact",
+    "severity.media": "Medium impact",
+    "severity.baja": "Low impact",
+
+    // Demo mode
+    "demo.badge": "DEMO",
+    "demo.reportingAs": "Demoing as",
   },
 } as const;
 

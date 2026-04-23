@@ -49,6 +49,14 @@ export interface ClassifyResult {
   next_action?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
   /** 3–5 technical keywords from the issue (for duplicate detection) */
   keywords?: string[];
+  /**
+   * Severity of the confirmed issue.
+   * "alta" = blocks critical workflow for multiple users.
+   * "media" = workaround exists or single user.
+   * "baja" = cosmetic / non-blocking.
+   * Only meaningful when classification === "bug_confirmed".
+   */
+  severidad?: "alta" | "media" | "baja";
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
@@ -107,6 +115,10 @@ Rules:
   * null → for bug_confirmed.
 - keywords: extract 3–5 specific technical keywords from the problem (not generic words like "error" or "bug"). Example: ["vacaciones", "mobile", "congelar", "registrar", "error_500"].
 - summary: 1 sentence suitable as a Jira ticket title, max 120 chars.
+- severidad (only when classification="bug_confirmed"):
+  * "alta" — blocks a critical workflow for multiple users, no workaround
+  * "media" — impacts some users but a workaround exists, or affects only 1 user
+  * "baja" — cosmetic, non-blocking, or edge case
 
 Respond with ONLY valid JSON matching this schema:
 {
@@ -117,7 +129,8 @@ Respond with ONLY valid JSON matching this schema:
   "explanation": "<string, only if action=classify>",
   "help_center_link": "<URL string or omit>",
   "next_action": "contact_cx_manager" | "retry_after_fix" | "resolve" | null,
-  "keywords": ["<keyword>", ...]
+  "keywords": ["<keyword>", ...],
+  "severidad": "alta" | "media" | "baja"
 }`;
 }
 
@@ -157,8 +170,25 @@ export async function classifyReport(input: ClassifyInput): Promise<ClassifyResu
   });
 
   const prompt = buildPrompt(input);
-  const response = await model.generateContent(prompt);
+
+  // 20-second hard timeout — prevents hanging deploys
+  const TIMEOUT_MS = 20_000;
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Gemini timeout after 20s")), TIMEOUT_MS)
+  );
+
+  const response = await Promise.race([
+    model.generateContent(prompt),
+    timeoutPromise,
+  ]);
   const text = response.response.text();
 
-  return parseGeminiJson(text);
+  // Retry JSON parse once on failure (Gemini occasionally wraps in markdown)
+  try {
+    return parseGeminiJson(text);
+  } catch {
+    // Second attempt: strip leading/trailing noise
+    const cleaned = text.replace(/^[^{[]*/, "").replace(/[^}\]]*$/, "");
+    return parseGeminiJson(cleaned);
+  }
 }

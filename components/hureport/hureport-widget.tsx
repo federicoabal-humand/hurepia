@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { X, AlertTriangle, LogOut } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
+import { detectDemoContext, type AdminContext } from "@/lib/hureport/context";
 import { ReportTab } from "./report-tab";
 import { MyReportsTab } from "./my-reports-tab";
 import { CommunityGate } from "./community-gate";
@@ -41,19 +42,40 @@ export function HuReportWidget() {
   const [lang, setLang] = useState<Lang>("es");
   const [activeTab, setActiveTab] = useState("report");
   const [mounted, setMounted] = useState(false);
-  const [community, setCommunity] = useState<StoredCommunity | null>(null);
 
-  // Hydrate from localStorage on mount
+  // Community state — either from demo preset or localStorage gate
+  const [community, setCommunity] = useState<StoredCommunity | null>(null);
+  const [demoContext, setDemoContext] = useState<AdminContext | null>(null);
+
+  // Hydrate on mount: detect demo mode first, then localStorage
   useEffect(() => {
-    setCommunity(readCommunity());
+    const demo = detectDemoContext();
+    if (demo) {
+      setDemoContext(demo);
+      // In demo mode, open the widget automatically on page load
+      setIsOpen(true);
+    } else {
+      setCommunity(readCommunity());
+    }
     setMounted(true);
   }, []);
 
+  // Esc key closes the panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) setIsOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
   // Reload community when panel opens (in case TTL just expired)
   const handleOpen = useCallback(() => {
-    setCommunity(readCommunity());
+    if (!demoContext) {
+      setCommunity(readCommunity());
+    }
     setIsOpen(true);
-  }, []);
+  }, [demoContext]);
 
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
 
@@ -63,6 +85,7 @@ export function HuReportWidget() {
   };
 
   const handleChangeCommunity = () => {
+    if (demoContext) return; // can't change community in demo mode
     const confirmed = window.confirm(
       lang === "es"
         ? "¿Cambiar comunidad? Se borrarán tus reportes actuales de esta vista."
@@ -73,6 +96,11 @@ export function HuReportWidget() {
     setCommunity(null);
     setActiveTab("report");
   };
+
+  // Resolve the active community name from either source
+  const activeCommunityName = demoContext?.communityName ?? community?.nameRaw ?? null;
+  const isDemo = demoContext?.mode === "demo";
+  const showGate = !isDemo && !community;
 
   if (!mounted) return null;
 
@@ -94,6 +122,11 @@ export function HuReportWidget() {
           )}
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{t("trigger.label", lang)}</span>
+          {isDemo && (
+            <span className="ml-1 px-1.5 py-0.5 bg-yellow-400 text-yellow-900 rounded text-[10px] font-bold uppercase tracking-wide">
+              DEMO
+            </span>
+          )}
         </button>
       </div>
 
@@ -120,17 +153,28 @@ export function HuReportWidget() {
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-primary" />
             <div>
-              <h2 className="text-base font-semibold text-gray-900 leading-tight">
-                {t("header.title", lang)}
-              </h2>
-              {community && (
-                <p className="text-xs text-gray-400 leading-tight">{community.nameRaw}</p>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900 leading-tight">
+                  {t("header.title", lang)}
+                </h2>
+                {isDemo && (
+                  <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded text-[10px] font-bold uppercase tracking-wide">
+                    DEMO
+                  </span>
+                )}
+              </div>
+              {activeCommunityName && (
+                <p className="text-xs text-gray-400 leading-tight">
+                  {isDemo && demoContext?.adminName
+                    ? `${demoContext.adminName} · ${activeCommunityName}`
+                    : activeCommunityName}
+                </p>
               )}
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            {/* Change community */}
-            {community && (
+            {/* Change community — hidden in demo mode */}
+            {!isDemo && community && (
               <button
                 onClick={handleChangeCommunity}
                 title={t("header.changeCommunity", lang)}
@@ -158,7 +202,7 @@ export function HuReportWidget() {
         </div>
 
         {/* ── Gate or tabs ─────────────────────────────────────────────── */}
-        {!community ? (
+        {showGate ? (
           <div className="flex-1 overflow-y-auto">
             <CommunityGate lang={lang} onComplete={handleGateComplete} />
           </div>
@@ -190,7 +234,10 @@ export function HuReportWidget() {
               value="report"
               className="flex-1 overflow-y-auto px-5 py-5 focus:outline-none"
             >
-              <ReportTab lang={lang} communityNameRaw={community.nameRaw} />
+              <ReportTab
+                lang={lang}
+                communityNameRaw={activeCommunityName ?? ""}
+              />
             </Tabs.Content>
 
             <Tabs.Content
@@ -199,7 +246,7 @@ export function HuReportWidget() {
             >
               <MyReportsTab
                 lang={lang}
-                communityName={community.nameRaw}
+                communityName={activeCommunityName ?? ""}
                 isWidgetOpen={isOpen}
               />
             </Tabs.Content>

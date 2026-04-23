@@ -238,6 +238,14 @@ export async function POST(req: NextRequest) {
 
     // ── 7. No duplicate → create Jira ticket ─────────────────────────────────
     const summary = (aiResult.summary ?? whatHappened).slice(0, 120);
+
+    // Compute friction score for internal triage (not shown in frontend badge)
+    const severidad = aiResult.severidad ?? (isBlocking && usersAffected === "many" ? "alta" : "media");
+    const frictionScore =
+      (severidad === "alta" ? 3 : severidad === "media" ? 2 : 1) +
+      (isBlocking ? 2 : 0) +
+      (usersAffected === "many" ? 1 : 0);
+
     const description = [
       `Module: ${moduleDisplayName}`,
       `Platform: ${platforms.join(", ")}`,
@@ -246,6 +254,8 @@ export async function POST(req: NextRequest) {
       whatExpected ? `Expected: ${whatExpected}` : "",
       `Blocking: ${isBlocking ? "Yes" : "No"}`,
       `Users affected: ${usersAffected}`,
+      `Severity: ${severidad}`,
+      `Friction score: ${frictionScore}/6`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -269,6 +279,8 @@ export async function POST(req: NextRequest) {
       ticketNumber,
       commentRef,
       isDuplicate: false,
+      severidad,
+      frictionScore,
     });
   } catch (err) {
     console.error("[classify] error:", err);

@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Phone,
   Lightbulb,
+  Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Classification } from "@/lib/mappings";
@@ -167,6 +168,13 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         <span className={cn("font-semibold text-sm", config.text)}>
           {t(`badge.${cls}` as Parameters<typeof t>[0], lang)}
         </span>
+        {/* Severity pill — only shown for confirmed bugs with high impact */}
+        {cls === "bug_confirmed" && result.severidad === "alta" && (
+          <span className="ml-auto flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded-full text-xs font-semibold">
+            <Flame className="w-3 h-3" />
+            {lang === "es" ? "Impacto alto" : "High impact"}
+          </span>
+        )}
       </div>
 
       {/* ── AI Explanation ───────────────────────────────────────────────── */}
