@@ -177,4 +177,9 @@ export type Classification =
   | "configuration_error"
   | "cache_browser"
   | "expected_behavior"
-  | "needs_more_info";
+  | "needs_more_info"
+  | "feature_request"
+  /** AI identified this as a known open issue already tracked */
+  | "bug_known"
+  /** AI identified this as an issue already resolved recently */
+  | "bug_already_resolved";

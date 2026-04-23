@@ -84,6 +84,16 @@ const TRANSLATIONS = {
     "badge.expected_behavior": "Funciona como está previsto",
     "badge.needs_more_info": "Necesitamos más detalle",
     "badge.feature_request": "Sugerencia registrada",
+    "badge.bug_known": "Ya lo tenemos identificado",
+    "badge.bug_already_resolved": "Resuelto recientemente",
+
+    // bug_already_resolved result
+    "result.resolved.title": "Este inconveniente fue resuelto recientemente",
+    "result.resolved.hint": "Probá refrescar tu sesión o actualizar la app. Si el problema persiste, reportalo de nuevo.",
+
+    // bug_known result
+    "result.known.title": "Ya estamos trabajando en esto",
+    "result.known.hint": "Tu reporte fue registrado en el ticket existente. Te avisaremos cuando esté resuelto.",
 
     // My Reports
     "reports.empty": "Todavía no hay reportes. Usá la pestaña Reportar para enviar el primero.",
@@ -255,6 +265,16 @@ const TRANSLATIONS = {
     "badge.expected_behavior": "Works as designed",
     "badge.needs_more_info": "We need more detail",
     "badge.feature_request": "Suggestion registered",
+    "badge.bug_known": "Already tracked",
+    "badge.bug_already_resolved": "Recently resolved",
+
+    // bug_already_resolved result
+    "result.resolved.title": "This issue was recently resolved",
+    "result.resolved.hint": "Try refreshing your session or updating the app. If the problem persists, please report it again.",
+
+    // bug_known result
+    "result.known.title": "We're already working on this",
+    "result.known.hint": "Your report was added to the existing ticket. We'll notify you when it's resolved.",
 
     // My Reports
     "reports.empty": "No reports yet. Use the Report tab to submit your first issue.",

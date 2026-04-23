@@ -15,14 +15,18 @@ import {
   Phone,
   Lightbulb,
   Flame,
+  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Classification } from "@/lib/mappings";
 import type { ResolvedResult } from "./report-tab";
 import { t, type Lang } from "@/lib/i18n";
 
+// Extend ResolvedResult with isResolved (bug_already_resolved case)
+type ResultWithResolved = ResolvedResult & { isResolved?: boolean };
+
 interface Props {
-  result: ResolvedResult;
+  result: ResultWithResolved;
   lang: Lang;
   onReportAnother: () => void;
 }
@@ -61,6 +65,24 @@ const BADGE_CONFIG: Record<
     text: "text-orange-700",
     border: "border-orange-200",
   },
+  feature_request: {
+    icon: Lightbulb,
+    bg: "bg-purple-50",
+    text: "text-purple-700",
+    border: "border-purple-200",
+  },
+  bug_known: {
+    icon: AlertTriangle,
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    border: "border-amber-200",
+  },
+  bug_already_resolved: {
+    icon: CheckCircle,
+    bg: "bg-green-50",
+    text: "text-green-700",
+    border: "border-green-200",
+  },
 };
 
 /** Returns a relative time string: "hace 2h" / "2h ago" */
@@ -82,11 +104,66 @@ function relativeTime(isoDate: string, lang: Lang): string {
 }
 
 export function AiResultCard({ result, lang, onReportAnother }: Props) {
+  // All hooks MUST be declared before any conditional returns
   const [feedbackSent, setFeedbackSent] = useState<boolean | null>(null);
   const [additionalText, setAdditionalText] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dupDismissed, setDupDismissed] = useState(false);
+
+  // ── bug_already_resolved ─────────────────────────────────────────────────────
+  if (result.isResolved || result.classification === "bug_already_resolved") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-green-800">
+              {t("result.resolved.title", lang)}
+            </p>
+            <p className="text-xs text-green-700">{t("result.resolved.hint", lang)}</p>
+            {result.explanation && (
+              <p className="text-sm text-gray-700 mt-2 leading-relaxed">{result.explanation}</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onReportAnother}
+          className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          <RotateCcw className="w-4 h-4" />
+          {t("result.reportAnother", lang)}
+        </button>
+      </div>
+    );
+  }
+
+  // ── bug_known without isDuplicate (direct classification from AI) ────────────
+  if (result.classification === "bug_known" && !result.isDuplicate) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <Wrench className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-800">
+              {t("result.known.title", lang)}
+            </p>
+            <p className="text-xs text-amber-700">{t("result.known.hint", lang)}</p>
+            {result.explanation && (
+              <p className="text-sm text-gray-700 mt-2 leading-relaxed">{result.explanation}</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onReportAnother}
+          className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          <RotateCcw className="w-4 h-4" />
+          {t("result.reportAnother", lang)}
+        </button>
+      </div>
+    );
+  }
 
   const cls = result.classification as Classification;
   const config = BADGE_CONFIG[cls] ?? BADGE_CONFIG["needs_more_info"];

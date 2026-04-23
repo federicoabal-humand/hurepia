@@ -61,6 +61,8 @@ export interface ClassifyApiResponse {
   // Severity (only present for bug_confirmed)
   severidad?: "alta" | "media" | "baja";
   frictionScore?: number;
+  // bug_already_resolved
+  isResolved?: boolean;
 }
 
 // What we pass to AiResultCard
@@ -80,6 +82,8 @@ export interface ResolvedResult {
   nextAction?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
   cxOwnerName?: string | null;
   severidad?: "alta" | "media" | "baja";
+  /** bug_already_resolved: the issue was fixed recently */
+  isResolved?: boolean;
 }
 
 type Step = "form" | "loading" | "asking" | "result" | "error";
@@ -178,6 +182,7 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
         nextAction: data.next_action,
         cxOwnerName: data.cxOwnerName,
         severidad: data.severidad,
+        isResolved: data.isResolved,
       });
       setStep("result");
     } catch (err) {

@@ -200,4 +200,16 @@ export const MOCK_AI_RESULTS: Record<Classification, MockAiResult> = {
       "¿El problema ocurre en todos los dispositivos o en uno específico?",
     ],
   },
+  feature_request: {
+    classification: "feature_request",
+    explanation: "Registramos tu sugerencia. El equipo de Producto la revisará en el próximo ciclo de priorización.",
+  },
+  bug_known: {
+    classification: "bug_known",
+    explanation: "Ya identificamos este inconveniente y estamos trabajando en la solución.",
+  },
+  bug_already_resolved: {
+    classification: "bug_already_resolved",
+    explanation: "Este inconveniente fue resuelto recientemente. Probá refrescar tu sesión o actualizar la app.",
+  },
 };
