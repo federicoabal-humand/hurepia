@@ -685,6 +685,8 @@ export async function POST(req: NextRequest) {
       isBlocking: !!isBlocking,
       communityName,
       instanceId: typeof instanceId === "number" ? instanceId : undefined,
+      platforms,
+      whatHappened,
     });
 
     const keyParts = issue.key.split("-");

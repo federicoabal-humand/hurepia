@@ -136,6 +136,62 @@ function mapTickets(issues: Array<{
 
 // ─── Create issue ─────────────────────────────────────────────────────────────
 
+// ─── Jira summary formatter ──────────────────────────────────────────────────
+
+const JIRA_SUMMARY_MODULE_MAP: Record<string, string> = {
+  users: "Users",
+  time_off: "Time Off",
+  chats: "Chats",
+  news: "News",
+  attendance: "Attendance",
+  onboarding: "Onboarding",
+  learning: "Learning",
+  events: "Events",
+  knowledge: "Knowledge",
+  acknowledgements: "Acknowledgements",
+  workflows: "Workflows",
+  groups: "Groups",
+  personal_documents: "Personal Documents",
+  org_chart: "Org Chart",
+  work_schedules: "Work Schedules",
+};
+
+export function formatJiraSummary(params: {
+  platforms: string[];
+  moduleSlug: string;
+  whatHappened: string;
+}): string {
+  // 1. Platform — Admin > Web > Mobile
+  const lower = params.platforms.map((p) => p.toLowerCase());
+  const hasAdmin = lower.some((p) => p.includes("admin"));
+  const hasWeb = lower.some((p) => p === "web");
+  const hasMobile = lower.some((p) => p.includes("mobile") || p.includes("app móvil") || p.includes("app movil"));
+  const platform = hasAdmin ? "Admin" : hasWeb ? "Web" : hasMobile ? "Mobile" : "Web";
+
+  // 2. Module name
+  const moduleName =
+    JIRA_SUMMARY_MODULE_MAP[params.moduleSlug] ??
+    (params.moduleSlug.charAt(0).toUpperCase() + params.moduleSlug.slice(1).replace(/_/g, " "));
+
+  // 3. Description: first sentence, max 80 chars
+  let desc = (params.whatHappened ?? "").trim();
+  const firstSentence = desc.match(/^[^.!?\n]+/);
+  if (firstSentence) desc = firstSentence[0].trim();
+  if (desc.length > 80) {
+    desc = desc.slice(0, 77).replace(/[\s.,;:]+$/, "") + "...";
+  }
+
+  // 4. Assemble and cap at 120 chars total
+  const prefix = `[${platform}] ${moduleName} | `;
+  let summary = prefix + desc;
+  if (summary.length > 120) {
+    const maxDesc = 120 - prefix.length - 3;
+    desc = params.whatHappened.slice(0, maxDesc).replace(/[\s.,;:]+$/, "") + "...";
+    summary = prefix + desc;
+  }
+  return summary;
+}
+
 export interface CreateIssueInput {
   summary: string;
   description: string;
@@ -145,6 +201,9 @@ export interface CreateIssueInput {
   communityName: string;
   /** Optional: stored as label "instanceId_XXXX" for future filtering */
   instanceId?: number;
+  /** When provided, overrides summary with standardized [Platform] Module | Desc format */
+  platforms?: string[];
+  whatHappened?: string;
 }
 
 export interface CreatedIssue {
@@ -155,6 +214,16 @@ export interface CreatedIssue {
 export async function createJiraIssue(
   input: CreateIssueInput
 ): Promise<CreatedIssue> {
+  // Use standardized format when caller provides platforms + whatHappened
+  const resolvedSummary =
+    input.platforms?.length && input.whatHappened
+      ? formatJiraSummary({
+          platforms: input.platforms,
+          moduleSlug: input.module,
+          whatHappened: input.whatHappened,
+        })
+      : input.summary;
+
   const miniAppId = MODULE_TO_JIRA_ID[input.module];
   const communityLabel = input.communityName.trim()
     ? sanitizeLabelValue(input.communityName)
@@ -169,7 +238,7 @@ export async function createJiraIssue(
     fields: {
       project:   { key: JIRA.PROJECT_KEY },
       issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID },
-      summary:   input.summary.slice(0, 254),
+      summary:   resolvedSummary.slice(0, 254),
       description: adf(input.description),
       [JIRA.FIELDS.BUG_DESCRIPTION]: adf(input.description.slice(0, 32000)),
       ...(miniAppId ? { [JIRA.FIELDS.MINI_APP]: [{ id: miniAppId }] } : {}),
@@ -209,7 +278,7 @@ export async function createJiraIssue(
         fields: {
           project:   { key: JIRA.PROJECT_KEY },
           issuetype: { id: JIRA.ISSUE_TYPE_BUG_ID },
-          summary:   input.summary.slice(0, 254),
+          summary:   resolvedSummary.slice(0, 254),
           description: adf(fallbackDescription),
           [JIRA.FIELDS.BUG_DESCRIPTION]: adf(fallbackDescription.slice(0, 32000)),
           ...(labels.length ? { [JIRA.FIELDS.AFFECTED_CLIENTS]: labels } : {}),
