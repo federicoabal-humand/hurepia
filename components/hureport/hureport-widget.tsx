@@ -5,7 +5,7 @@ import { X, AlertTriangle, LogOut } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
-import { detectDemoContext, type AdminContext } from "@/lib/hureport/context";
+import { detectDemoContext, listenForEmbeddedContext, type AdminContext } from "@/lib/hureport/context";
 import { ReportTab } from "./report-tab";
 import { MyReportsTab } from "./my-reports-tab";
 import { CommunityGate } from "./community-gate";
@@ -68,6 +68,17 @@ export function HuReportWidget() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
+
+  // Embedded mode: listen for postMessage from parent Humand frame
+  useEffect(() => {
+    if (demoContext) return; // already have demo context — skip
+    const cleanup = listenForEmbeddedContext((ctx) => {
+      setDemoContext(ctx);
+      setCommunity(null);
+      setIsOpen(true); // auto-open when embedded context arrives
+    });
+    return cleanup;
+  }, [demoContext]);
 
   // Reload community when panel opens (in case TTL just expired)
   const handleOpen = useCallback(() => {
@@ -247,6 +258,8 @@ export function HuReportWidget() {
               <MyReportsTab
                 lang={lang}
                 communityName={activeCommunityName ?? ""}
+                instanceId={demoContext?.instanceId}
+                adminEmail={demoContext?.adminEmail}
                 isWidgetOpen={isOpen}
               />
             </Tabs.Content>
