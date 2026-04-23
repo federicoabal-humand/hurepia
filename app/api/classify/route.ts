@@ -24,6 +24,30 @@ import { signIssueRef } from "@/lib/token";
 import { MODULE_NOTION_MAP } from "@/lib/module-registry";
 import type { ClassifyResult } from "@/lib/llm";
 
+// ─── Duplicate detection helpers ──────────────────────────────────────────────
+
+/**
+ * Tokenize a string for duplicate comparison.
+ * - lowercase
+ * - replace _ - . with spaces (so "error_500" → "error 500")
+ * - strip remaining punctuation
+ * - split on whitespace
+ * - filter min 3 chars
+ */
+function normalizeTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[_\-.]/g, " ")
+    .replace(/[^\w\sáéíóúñüàèìòùâêîôûäëïöü]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3);
+}
+
+function dupScore(titleTokens: Set<string>, keywords: string[]): number {
+  const kwTokens = keywords.flatMap(normalizeTokens);
+  return kwTokens.filter((k) => titleTokens.has(k)).length;
+}
+
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for") ?? "unknown";
   const { allowed } = rateLimit(`classify:${ip}`, 20, 60_000);
@@ -47,7 +71,7 @@ export async function POST(req: NextRequest) {
       askCount = 0,
     } = body;
 
-    // ── 1. Fetch module docs in parallel with nothing else (fast) ────────────
+    // ── 1. Fetch module docs ──────────────────────────────────────────────────
     const moduleEntry = MODULE_NOTION_MAP[moduleSlug];
     const moduleDisplayName = moduleEntry?.displayName ?? moduleSlug;
 
@@ -78,7 +102,7 @@ export async function POST(req: NextRequest) {
     // ── 4. Classification decided ─────────────────────────────────────────────
     const classification = aiResult.classification;
 
-    // For non-bug cases, optionally resolve CX owner if needed
+    // Resolve CX owner if needed
     let cxOwnerName: string | null = null;
     if (aiResult.next_action === "contact_cx_manager" && communityPageId) {
       const cx = await getCxOwnerForCommunity(communityPageId).catch(() => ({ found: false as const }));
@@ -87,45 +111,52 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Non-bug → return AI result + optional CX owner
+    // Non-bug → return immediately
     if (classification !== "bug_confirmed") {
       return NextResponse.json({ ...aiResult, cxOwnerName });
     }
 
     // ── 5. Bug confirmed: duplicate check ─────────────────────────────────────
-    const keywords = aiResult.keywords?.length
+    // Use AI-extracted keywords as-is (they may be compound like "error_500")
+    // normalizeTokens() splits them for comparison
+    const keywords: string[] = aiResult.keywords?.length
       ? aiResult.keywords
       : whatHappened.toLowerCase().split(/\W+/).filter((w: string) => w.length >= 4).slice(0, 5);
 
-    // Run Jira search + Notion search in parallel
+    // Run Jira + Notion search in parallel
     const [jiraIssues, notionInputs] = await Promise.all([
       searchIssuesForCommunity(communityName).catch(() => []),
       searchClientsInputs(keywords).catch(() => []),
     ]);
 
-    // Check for keyword overlap with existing Jira tickets
-    const kwSet = new Set(keywords.map((k: string) => k.toLowerCase()));
-    const jiraDup = jiraIssues.find((issue) => {
-      const titleWords = issue.summary.toLowerCase().split(/\W+/);
-      const overlap = titleWords.filter((w) => kwSet.has(w));
-      return overlap.length >= 2; // At least 2 keyword matches = likely duplicate
+    // ── Jira duplicate check ─────────────────────────────────────────────────
+    // Skip tickets that are already resolved (might be a new occurrence)
+    const openJiraIssues = jiraIssues.filter((i) => i.status !== "resolved");
+
+    const jiraDup = openJiraIssues.find((issue) => {
+      const titleTokens = new Set(normalizeTokens(issue.summary));
+      return dupScore(titleTokens, keywords) >= 2;
     });
 
     if (jiraDup) {
+      const keyParts = jiraDup.key.split("-");
+      const dupTicketNumber = keyParts.length === 2 ? parseInt(keyParts[1], 10) : undefined;
+
       return NextResponse.json({
         ...aiResult,
         cxOwnerName,
         isDuplicate: true,
-        duplicateType: "jira",
+        duplicateType: "jira" as const,
         duplicateTitle: jiraDup.summary,
         duplicateCommentRef: signIssueRef(jiraDup.key),
+        duplicateTicketNumber: dupTicketNumber,
       });
     }
 
+    // ── Notion duplicate check ────────────────────────────────────────────────
     const notionDup = notionInputs.find((item) => {
-      const titleWords = item.title.toLowerCase().split(/\W+/);
-      const overlap = titleWords.filter((w) => kwSet.has(w));
-      return overlap.length >= 2;
+      const titleTokens = new Set(normalizeTokens(item.title));
+      return dupScore(titleTokens, keywords) >= 2;
     });
 
     if (notionDup) {
@@ -133,7 +164,7 @@ export async function POST(req: NextRequest) {
         ...aiResult,
         cxOwnerName,
         isDuplicate: true,
-        duplicateType: "notion",
+        duplicateType: "notion" as const,
         duplicateTitle: notionDup.title,
       });
     }

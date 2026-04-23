@@ -228,10 +228,24 @@ export interface CommunityCxInfo {
   found: boolean;
 }
 
+// In-memory cache: pageId → { info, cachedAt }
+const cxCache: Record<string, { info: CommunityCxInfo; cachedAt: number }> = {};
+const CX_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 /**
  * Fetch the CX Owner name for a community from the COMUNIDADES_CLIENTES DB.
- * The "CX Owner" property is a rollup from the "Humand Clients" relation.
- * Returns { found: false } on any failure — never throws.
+ *
+ * Strategy 1: Read the "CX Owner" rollup directly from the page properties.
+ *   - This works if the Notion integration has sufficient scopes.
+ *
+ * Strategy 2 (fallback): Follow the "Humand Clients" relation chain.
+ *   a) Get relation IDs from COMUNIDADES_CLIENTES page
+ *   b) Fetch the related page
+ *   c) Read "CX Owner" (people property) from that page
+ *   d) If only a user_id, call /v1/users/{id}
+ *
+ * Results cached for 30 minutes per pageId.
+ * Returns { found: false } on all failures — never throws.
  */
 export async function getCxOwnerForCommunity(
   pageId: string
@@ -239,23 +253,32 @@ export async function getCxOwnerForCommunity(
   const token = process.env.NOTION_API_TOKEN;
   if (!token || !pageId) return { found: false };
 
+  // Check cache
+  const cached = cxCache[pageId];
+  if (cached && Date.now() - cached.cachedAt < CX_CACHE_TTL) {
+    return cached.info;
+  }
+
+  const save = (info: CommunityCxInfo): CommunityCxInfo => {
+    cxCache[pageId] = { info, cachedAt: Date.now() };
+    return info;
+  };
+
   try {
     const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-      headers: { ...headers(), "Content-Type": undefined as unknown as string },
+      headers: headers(),
     });
-    if (!res.ok) return { found: false };
+    if (!res.ok) return save({ found: false });
 
     const page = await res.json();
     const props = (page.properties ?? {}) as Record<string, unknown>;
 
-    // Try "CX Owner" property in multiple formats
+    // ── Strategy 1: direct property on this page ──────────────────────────────
     for (const key of ["CX Owner", "cx_owner", "CX", "Owner"]) {
       const prop = props[key] as Record<string, unknown> | undefined;
       if (!prop) continue;
-
       const type = prop["type"] as string | undefined;
 
-      // Rollup (most likely)
       if (type === "rollup") {
         const rollup = prop["rollup"] as {
           type?: string;
@@ -268,33 +291,91 @@ export async function getCxOwnerForCommunity(
           string?: string;
         } | undefined;
 
-        if (rollup?.string?.trim()) return { found: true, cxOwnerName: rollup.string.trim() };
+        if (rollup?.string?.trim())
+          return save({ found: true, cxOwnerName: rollup.string.trim() });
 
         const first = rollup?.array?.[0];
-        if (first?.people?.[0]?.name) return { found: true, cxOwnerName: first.people[0].name };
+        if (first?.people?.[0]?.name)
+          return save({ found: true, cxOwnerName: first.people[0].name });
         if (first?.rich_text?.[0]?.plain_text?.trim())
-          return { found: true, cxOwnerName: first.rich_text[0].plain_text.trim() };
+          return save({ found: true, cxOwnerName: first.rich_text[0].plain_text.trim() });
         if (first?.title?.[0]?.plain_text?.trim())
-          return { found: true, cxOwnerName: first.title[0].plain_text.trim() };
+          return save({ found: true, cxOwnerName: first.title[0].plain_text.trim() });
       }
 
-      // People property
       if (type === "people") {
-        const people = prop["people"] as Array<{ name?: string }> | undefined;
-        if (people?.[0]?.name) return { found: true, cxOwnerName: people[0].name };
+        const people = prop["people"] as Array<{ name?: string; id?: string }> | undefined;
+        if (people?.[0]?.name)
+          return save({ found: true, cxOwnerName: people[0].name });
+        // Only user_id — resolve via /v1/users
+        if (people?.[0]?.id) {
+          const name = await fetchUserName(people[0].id, token);
+          if (name) return save({ found: true, cxOwnerName: name });
+        }
       }
 
-      // Rich text
       if (type === "rich_text") {
         const arr = prop["rich_text"] as Array<{ plain_text?: string }> | undefined;
         if (arr?.[0]?.plain_text?.trim())
-          return { found: true, cxOwnerName: arr[0].plain_text.trim() };
+          return save({ found: true, cxOwnerName: arr[0].plain_text.trim() });
       }
     }
 
-    return { found: false };
+    // ── Strategy 2: follow "Humand Clients" relation ──────────────────────────
+    const relationProp = props["Humand Clients"] as Record<string, unknown> | undefined;
+    if (relationProp?.type === "relation") {
+      const relations = relationProp["relation"] as Array<{ id?: string }> | undefined;
+      const relatedId = relations?.[0]?.id;
+      if (relatedId) {
+        const relRes = await fetch(`https://api.notion.com/v1/pages/${relatedId}`, {
+          headers: headers(),
+        });
+        if (relRes.ok) {
+          const relPage = await relRes.json();
+          const relProps = (relPage.properties ?? {}) as Record<string, unknown>;
+          for (const key of ["CX Owner", "cx_owner", "CX", "Owner"]) {
+            const prop = relProps[key] as Record<string, unknown> | undefined;
+            if (!prop) continue;
+            const type = prop["type"] as string | undefined;
+            if (type === "people") {
+              const people = prop["people"] as Array<{ name?: string; id?: string }> | undefined;
+              if (people?.[0]?.name)
+                return save({ found: true, cxOwnerName: people[0].name });
+              if (people?.[0]?.id) {
+                const name = await fetchUserName(people[0].id, token);
+                if (name) return save({ found: true, cxOwnerName: name });
+              }
+            }
+            if (type === "rich_text") {
+              const arr = prop["rich_text"] as Array<{ plain_text?: string }> | undefined;
+              if (arr?.[0]?.plain_text?.trim())
+                return save({ found: true, cxOwnerName: arr[0].plain_text.trim() });
+            }
+          }
+        }
+      }
+    }
+
+    return save({ found: false });
   } catch {
-    return { found: false };
+    return save({ found: false });
+  }
+}
+
+/** Resolve a Notion user ID to a display name via /v1/users/{id}. */
+async function fetchUserName(userId: string, token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.notion.com/v1/users/${userId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Notion-Version": NOTION_VERSION,
+      },
+    });
+    if (!res.ok) return null;
+    const user = await res.json();
+    return (user.name as string | undefined)?.trim() ?? null;
+  } catch {
+    return null;
   }
 }
 

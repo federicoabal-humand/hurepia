@@ -170,6 +170,11 @@ export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTab
           <CheckCircle className="w-6 h-6 text-gray-400" />
         </div>
         <p className="text-sm text-gray-500">{t("reports.empty", lang)}</p>
+        <p className="text-xs text-gray-400 max-w-xs">
+          {lang === "es"
+            ? "Los tickets históricos anteriores a HuReport AI no aparecen en esta vista."
+            : "Tickets created before HuReport AI are not shown in this view."}
+        </p>
       </div>
     );
   }

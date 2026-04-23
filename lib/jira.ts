@@ -38,6 +38,21 @@ function adf(text: string) {
   };
 }
 
+/**
+ * Sanitize a community name for the Jira "labels" field.
+ * Labels do NOT support spaces — replace with underscores and strip
+ * any characters that Jira rejects (only letters, digits, - _ allowed).
+ *
+ * Reversible: "Naranja_X" → display as "Naranja X" in the UI.
+ */
+export function sanitizeLabelValue(name: string): string {
+  return name
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_\-áéíóúÁÉÍÓÚñÑüÜ]/g, "")
+    .slice(0, 100); // Jira label max length
+}
+
 // ─── Create issue ─────────────────────────────────────────────────────────────
 
 export interface CreateIssueInput {
@@ -58,6 +73,10 @@ export async function createJiraIssue(
   input: CreateIssueInput
 ): Promise<CreatedIssue> {
   const miniAppId = MODULE_TO_JIRA_ID[input.module];
+  // Labels field: sanitize spaces → underscores
+  const communityLabel = input.communityName.trim()
+    ? sanitizeLabelValue(input.communityName)
+    : null;
 
   const fullPayload = {
     fields: {
@@ -74,9 +93,9 @@ export async function createJiraIssue(
         ? { [JIRA.FIELDS.MINI_APP]: [{ id: miniAppId }] }
         : {}),
 
-      // Affected Clients — labels field: array of strings
-      ...(input.communityName.trim()
-        ? { [JIRA.FIELDS.AFFECTED_CLIENTS]: [input.communityName.trim()] }
+      // Affected Clients — labels field: NO spaces allowed, use underscores
+      ...(communityLabel
+        ? { [JIRA.FIELDS.AFFECTED_CLIENTS]: [communityLabel] }
         : {}),
 
       // Bug Blocking — radiobutton: single option by id
@@ -127,6 +146,10 @@ export async function createJiraIssue(
           summary:   input.summary.slice(0, 254),
           description: adf(fallbackDescription),
           [JIRA.FIELDS.BUG_DESCRIPTION]: adf(fallbackDescription.slice(0, 32000)),
+          // Always include community in fallback too
+          ...(communityLabel
+            ? { [JIRA.FIELDS.AFFECTED_CLIENTS]: [communityLabel] }
+            : {}),
         },
       }),
     });
@@ -151,11 +174,27 @@ export interface JiraIssueSummary {
 }
 
 export async function searchIssuesForCommunity(
-  _communityName: string
+  communityName: string
 ): Promise<JiraIssueSummary[]> {
-  const jql = `project = ${JIRA.PROJECT_KEY} ORDER BY created DESC`;
-  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP, "statusCategory"].join(",");
-  // NOTE: /rest/api/3/search is deprecated — use /rest/api/3/search/jql
+  // Build JQL — filter strictly by community when name is provided
+  const communityLabel = communityName.trim()
+    ? sanitizeLabelValue(communityName)
+    : null;
+
+  const jqlParts = [
+    `project = ${JIRA.PROJECT_KEY}`,
+    `issuetype = Bug`,
+  ];
+
+  if (communityLabel) {
+    // "Affected Clients" is a labels field → use = for exact match (case-insensitive)
+    // Escape double-quotes inside the value just in case
+    const safe = communityLabel.replace(/"/g, '\\"');
+    jqlParts.push(`"Affected Clients" = "${safe}"`);
+  }
+
+  const jql = jqlParts.join(" AND ") + " ORDER BY created DESC";
+  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
   const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=20&fields=${fields}`;
 
   try {
