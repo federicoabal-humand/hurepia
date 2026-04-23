@@ -47,12 +47,15 @@ export interface ClassifyApiResponse {
   help_center_link?: string;
   next_action?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
   keywords?: string[];
-  // Backend-resolved
+  // New ticket
   ticketNumber?: number;
   commentRef?: string;
+  // Duplicate (safe fields only — no internal Jira data)
   isDuplicate?: boolean;
-  duplicateType?: "jira" | "notion";
-  duplicateTitle?: string;
+  duplicateConfidence?: "high" | "low";
+  duplicateTicketNumber?: number;
+  duplicateFriendlyStatus?: string;
+  duplicateCreatedAt?: string;
   duplicateCommentRef?: string;
   cxOwnerName?: string | null;
 }
@@ -65,8 +68,10 @@ export interface ResolvedResult {
   ticketNumber?: number;
   commentRef?: string;
   isDuplicate?: boolean;
-  duplicateType?: "jira" | "notion";
-  duplicateTitle?: string;
+  duplicateConfidence?: "high" | "low";
+  duplicateTicketNumber?: number;
+  duplicateFriendlyStatus?: string;
+  duplicateCreatedAt?: string;
   duplicateCommentRef?: string;
   helpCenterLink?: string;
   nextAction?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
@@ -152,8 +157,10 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
         ticketNumber: data.ticketNumber,
         commentRef: data.commentRef,
         isDuplicate: data.isDuplicate,
-        duplicateType: data.duplicateType,
-        duplicateTitle: data.duplicateTitle,
+        duplicateConfidence: data.duplicateConfidence,
+        duplicateTicketNumber: data.duplicateTicketNumber,
+        duplicateFriendlyStatus: data.duplicateFriendlyStatus,
+        duplicateCreatedAt: data.duplicateCreatedAt,
         duplicateCommentRef: data.duplicateCommentRef,
         helpCenterLink: data.help_center_link,
         nextAction: data.next_action,

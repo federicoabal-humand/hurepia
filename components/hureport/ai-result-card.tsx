@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  Bug,
+  AlertCircle,
   Settings,
   RefreshCw,
   CheckCircle,
@@ -13,6 +13,7 @@ import {
   Ticket,
   AlertTriangle,
   Phone,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Classification } from "@/lib/mappings";
@@ -30,7 +31,7 @@ const BADGE_CONFIG: Record<
   { icon: React.ElementType; bg: string; text: string; border: string }
 > = {
   bug_confirmed: {
-    icon: Bug,
+    icon: AlertCircle,
     bg: "bg-red-50",
     text: "text-red-700",
     border: "border-red-200",
@@ -61,15 +62,34 @@ const BADGE_CONFIG: Record<
   },
 };
 
+/** Returns a relative time string: "hace 2h" / "2h ago" */
+function relativeTime(isoDate: string, lang: Lang): string {
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (lang === "es") {
+    if (diffMins < 60) return `hace ${diffMins}m`;
+    if (diffHours < 24) return `hace ${diffHours}h`;
+    return `hace ${diffDays}d`;
+  } else {
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  }
+}
+
 export function AiResultCard({ result, lang, onReportAnother }: Props) {
   const [feedbackSent, setFeedbackSent] = useState<boolean | null>(null);
   const [additionalText, setAdditionalText] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dupDismissed, setDupDismissed] = useState(false);
 
   const cls = result.classification as Classification;
-  const config = BADGE_CONFIG[cls];
-  const Icon = config?.icon ?? Bug;
+  const config = BADGE_CONFIG[cls] ?? BADGE_CONFIG["needs_more_info"];
+  const Icon = config.icon;
 
   async function submitAdditional() {
     if (!additionalText.trim() || !result.commentRef) return;
@@ -88,45 +108,75 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* ── Duplicate banner ── */}
-      {result.isDuplicate && (
-        <div className="flex gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-amber-800">
-              {result.duplicateType === "jira"
-                ? lang === "es"
-                  ? "Ya estamos trabajando en este inconveniente"
-                  : "We're already working on this issue"
-                : lang === "es"
-                ? "Ya hay un pedido similar registrado"
-                : "A similar request is already registered"}
-            </p>
-            {result.duplicateTitle && (
-              <p className="text-xs text-amber-700 italic">&quot;{result.duplicateTitle}&quot;</p>
+      {/* ── Duplicate banner ─────────────────────────────────────────────── */}
+      {result.isDuplicate && !dupDismissed && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+          <div className="flex gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-800">
+                {t("result.duplicate.title", lang)}
+              </p>
+              <p className="text-xs text-amber-700">
+                {t("result.duplicate.report", lang)}
+                {result.duplicateTicketNumber ? ` #${result.duplicateTicketNumber}` : ""}
+                {result.duplicateFriendlyStatus
+                  ? ` · ${t(`status.${result.duplicateFriendlyStatus}` as Parameters<typeof t>[0], lang)}`
+                  : ""}
+                {result.duplicateCreatedAt
+                  ? ` · ${t("result.duplicate.reportedAgo", lang)} ${relativeTime(result.duplicateCreatedAt, lang)}`
+                  : ""}
+              </p>
+            </div>
+          </div>
+          {/* Confidence actions */}
+          <div className="flex gap-2 ml-8">
+            {result.duplicateConfidence === "high" ? (
+              <button
+                type="button"
+                onClick={() => setDupDismissed(true)}
+                className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition-colors"
+              >
+                {t("result.duplicate.sameIssue", lang)}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setDupDismissed(true)}
+                  className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 transition-colors"
+                >
+                  {t("result.duplicate.sameIssue", lang)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDupDismissed(false)}
+                  className="px-3 py-1.5 border border-amber-300 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100 transition-colors"
+                >
+                  {t("result.duplicate.differentIssue", lang)}
+                </button>
+              </>
             )}
           </div>
         </div>
       )}
 
-      {/* ── Classification badge ── */}
-      {config && (
-        <div className={cn("flex items-center gap-2 px-4 py-3 rounded-xl border", config.bg, config.border)}>
-          <Icon className={cn("w-5 h-5 flex-shrink-0", config.text)} />
-          <span className={cn("font-semibold text-sm", config.text)}>
-            {t(`badge.${cls}` as Parameters<typeof t>[0], lang)}
-          </span>
-        </div>
-      )}
+      {/* ── Classification badge ─────────────────────────────────────────── */}
+      <div className={cn("flex items-center gap-2 px-4 py-3 rounded-xl border", config.bg, config.border)}>
+        <Icon className={cn("w-5 h-5 flex-shrink-0", config.text)} />
+        <span className={cn("font-semibold text-sm", config.text)}>
+          {t(`badge.${cls}` as Parameters<typeof t>[0], lang)}
+        </span>
+      </div>
 
-      {/* ── AI Explanation ── */}
+      {/* ── AI Explanation ───────────────────────────────────────────────── */}
       {result.explanation && (
         <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
           {result.explanation}
         </p>
       )}
 
-      {/* ── Ticket created ── */}
+      {/* ── Ticket created ───────────────────────────────────────────────── */}
       {cls === "bug_confirmed" && !result.isDuplicate && result.ticketNumber && (
         <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
           <Ticket className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -139,7 +189,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Help center link (expected_behavior / config / any) ── */}
+      {/* ── Help center link ─────────────────────────────────────────────── */}
       {result.helpCenterLink && (
         <a
           href={result.helpCenterLink}
@@ -152,7 +202,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </a>
       )}
 
-      {/* ── CX Manager routing ── */}
+      {/* ── CX Manager routing ───────────────────────────────────────────── */}
       {result.nextAction === "contact_cx_manager" && (
         <div className="flex gap-3 p-4 bg-primary-light border border-primary/20 rounded-xl">
           <Phone className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
@@ -169,10 +219,13 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Expected behavior feedback prompt ── */}
+      {/* ── expected_behavior feedback prompt ───────────────────────────── */}
       {cls === "expected_behavior" && feedbackSent === null && (
         <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
-          <p className="text-sm text-gray-700 mb-3">{t("result.submitFeedback", lang)}</p>
+          <div className="flex items-center gap-2 mb-2">
+            <Lightbulb className="w-4 h-4 text-gray-500" />
+            <p className="text-sm text-gray-700">{t("result.submitFeedback", lang)}</p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => setFeedbackSent(true)}
@@ -196,7 +249,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Needs more info — additional info input ── */}
+      {/* ── Needs more info ──────────────────────────────────────────────── */}
       {cls === "needs_more_info" && result.commentRef && !submitted && (
         <div className="space-y-2">
           <textarea
@@ -225,7 +278,7 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Report another ── */}
+      {/* ── Report another ───────────────────────────────────────────────── */}
       <button
         onClick={onReportAnother}
         className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"

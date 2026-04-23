@@ -7,7 +7,7 @@ import {
   Plus,
   Send,
   CheckCircle,
-  Bug,
+  AlertCircle,
   Settings,
   RefreshCw,
   HelpCircle,
@@ -49,7 +49,7 @@ const STATUS_STYLES: Record<FriendlyStatus, string> = {
 };
 
 const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
-  bug_confirmed: Bug,
+  bug_confirmed: AlertCircle,
   configuration_error: Settings,
   cache_browser: RefreshCw,
   expected_behavior: CheckCircle,
@@ -194,7 +194,7 @@ export function MyReportsTab({ lang, communityName, isWidgetOpen }: MyReportsTab
         const isAddingInfo = addInfoId === ticket.id;
         const wasSent = sentIds.has(ticket.id);
         const cls = ticket.classification ?? "bug_confirmed";
-        const ClassIcon = CLASSIFICATION_ICON[cls as Classification] ?? Bug;
+        const ClassIcon = CLASSIFICATION_ICON[cls as Classification] ?? AlertCircle;
 
         return (
           <div key={ticket.id} className="border border-gray-200 rounded-xl overflow-hidden">

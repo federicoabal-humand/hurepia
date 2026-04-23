@@ -16,7 +16,7 @@ const TRANSLATIONS = {
 
     // Report form — sections
     "form.section.client": "Información del cliente",
-    "form.section.issue": "Detalle del problema",
+    "form.section.issue": "Detalle del inconveniente",
     "form.section.evidence": "Evidencia",
 
     // Form fields
@@ -33,7 +33,7 @@ const TRANSLATIONS = {
     "form.platform.label": "Plataforma",
 
     "form.whatHappened.label": "¿Qué pasó?",
-    "form.whatHappened.placeholder": "Describí el problema en detalle...",
+    "form.whatHappened.placeholder": "Describí el inconveniente en detalle...",
 
     "form.whatExpected.label": "¿Qué esperabas que pasara?",
     "form.whatExpected.placeholder": "Comportamiento esperado...",
@@ -50,7 +50,7 @@ const TRANSLATIONS = {
     "form.evidence.hint": "Arrastrá archivos aquí o hacé click para seleccionar",
     "form.evidence.required": "* Requerido",
 
-    "form.url.label": "URL donde ocurre el problema",
+    "form.url.label": "URL donde ocurre el inconveniente",
     "form.url.placeholder": "https://...",
 
     "form.email.label": "Email o ID del usuario afectado",
@@ -60,26 +60,34 @@ const TRANSLATIONS = {
     "form.submit.loading": "La IA está analizando...",
 
     // AI Result
-    "result.ticketCreated": "Creamos el ticket automáticamente.",
-    "result.ticketNumber": "Ticket",
-    "result.reportAnother": "Reportar otro problema",
-    "result.submitFeedback": "¿Enviar esto como feedback al equipo de Producto?",
-    "result.yes": "Sí, enviar feedback",
+    "result.ticketCreated": "Creamos el reporte automáticamente.",
+    "result.ticketNumber": "Reporte",
+    "result.reportAnother": "Reportar otro inconveniente",
+    "result.submitFeedback": "¿Enviar esto como sugerencia al equipo de Producto?",
+    "result.yes": "Sí, enviar sugerencia",
     "result.no": "No, gracias",
     "result.viewDocs": "Ver documentación",
     "result.submitAdditional": "Enviar información adicional",
     "result.additionalPlaceholder": "Respondé las preguntas aquí...",
 
-    // Classification badges
-    "badge.bug_confirmed": "Bug confirmado",
-    "badge.configuration_error": "Error de configuración",
-    "badge.cache_browser": "Caché / Navegador",
-    "badge.expected_behavior": "Comportamiento esperado",
-    "badge.needs_more_info": "Se necesita más info",
+    // Duplicate result
+    "result.duplicate.title": "Identificamos un inconveniente similar ya reportado",
+    "result.duplicate.report": "Reporte",
+    "result.duplicate.reportedAgo": "Reportado",
+    "result.duplicate.sameIssue": "Este es mi caso",
+    "result.duplicate.differentIssue": "No, es algo distinto",
+
+    // Classification badges (admin-friendly, no technical jargon)
+    "badge.bug_confirmed": "Inconveniente confirmado",
+    "badge.configuration_error": "Ajuste de configuración necesario",
+    "badge.cache_browser": "Refrescá tu sesión",
+    "badge.expected_behavior": "Funciona como está previsto",
+    "badge.needs_more_info": "Necesitamos más detalle",
+    "badge.feature_request": "Sugerencia registrada",
 
     // My Reports
     "reports.empty": "Todavía no hay reportes. Usá la pestaña Reportar para enviar el primero.",
-    "reports.ticket": "Ticket",
+    "reports.ticket": "Reporte",
     "reports.date": "Fecha",
     "reports.module": "Módulo",
     "reports.summary": "Resumen",
@@ -95,7 +103,7 @@ const TRANSLATIONS = {
     // Status badges
     "status.reported": "Reportado",
     "status.under_review": "En revisión",
-    "status.developing_fix": "Desarrollando fix",
+    "status.developing_fix": "Desarrollando solución",
     "status.resolved": "Resuelto",
 
     // Modules
@@ -140,10 +148,13 @@ const TRANSLATIONS = {
 
     // Community Gate
     "gate.title": "Bienvenido a HuReport AI",
+    "gate.welcome": "Bienvenido a HuReport AI",
     "gate.subtitle": "Contanos tu comunidad para empezar.",
+    "gate.communityLabel": "Nombre de tu comunidad",
     "gate.placeholder": "Ej: Mi Empresa SA",
     "gate.continue": "Continuar",
     "gate.reportingFor": "Reportando para:",
+    "gate.privacyNote": "Esta información solo se usa para identificar tu reporte.",
     "header.changeCommunity": "Cambiar comunidad",
 
     // CX routing
@@ -211,26 +222,34 @@ const TRANSLATIONS = {
     "form.submit.loading": "AI is analyzing...",
 
     // AI Result
-    "result.ticketCreated": "We've automatically created a ticket.",
-    "result.ticketNumber": "Ticket",
+    "result.ticketCreated": "We've automatically created a report.",
+    "result.ticketNumber": "Report",
     "result.reportAnother": "Report another issue",
-    "result.submitFeedback": "Would you like to submit this as feedback for our Product team?",
-    "result.yes": "Yes, send feedback",
+    "result.submitFeedback": "Would you like to submit this as a suggestion for our Product team?",
+    "result.yes": "Yes, send suggestion",
     "result.no": "No, thanks",
     "result.viewDocs": "View documentation",
     "result.submitAdditional": "Submit additional info",
     "result.additionalPlaceholder": "Answer the questions here...",
 
-    // Classification badges
-    "badge.bug_confirmed": "Bug confirmed",
-    "badge.configuration_error": "Configuration error",
-    "badge.cache_browser": "Cache / Browser",
-    "badge.expected_behavior": "Expected behavior",
-    "badge.needs_more_info": "Needs more info",
+    // Duplicate result
+    "result.duplicate.title": "We found a similar issue already reported",
+    "result.duplicate.report": "Report",
+    "result.duplicate.reportedAgo": "Reported",
+    "result.duplicate.sameIssue": "This is my case",
+    "result.duplicate.differentIssue": "No, it's something different",
+
+    // Classification badges (admin-friendly, no technical jargon)
+    "badge.bug_confirmed": "Confirmed issue",
+    "badge.configuration_error": "Configuration adjustment needed",
+    "badge.cache_browser": "Refresh your session",
+    "badge.expected_behavior": "Works as designed",
+    "badge.needs_more_info": "We need more detail",
+    "badge.feature_request": "Suggestion registered",
 
     // My Reports
     "reports.empty": "No reports yet. Use the Report tab to submit your first issue.",
-    "reports.ticket": "Ticket",
+    "reports.ticket": "Report",
     "reports.date": "Date",
     "reports.module": "Module",
     "reports.summary": "Summary",
@@ -291,10 +310,13 @@ const TRANSLATIONS = {
 
     // Community Gate
     "gate.title": "Welcome to HuReport AI",
+    "gate.welcome": "Welcome to HuReport AI",
     "gate.subtitle": "Tell us your community to get started.",
+    "gate.communityLabel": "Your community name",
     "gate.placeholder": "E.g: My Company Inc",
     "gate.continue": "Continue",
     "gate.reportingFor": "Reporting for:",
+    "gate.privacyNote": "This information is only used to identify your report.",
     "header.changeCommunity": "Change community",
 
     // CX routing

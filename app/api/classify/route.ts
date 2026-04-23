@@ -5,9 +5,10 @@
  *   2. Enrich with module docs (Notion)
  *   3. Call Gemini for classification
  *   4. If action=classify + bug_confirmed:
- *      a. Check for duplicates (Jira search + Notion CLIENTS_INPUTS)
+ *      a. Check for duplicates (module-aware, 60-day window)
  *      b. If no duplicate → create Jira ticket
- *   5. Return enriched response to the frontend (never raw HUREP-XX)
+ *   5. Return enriched response to the frontend (never raw HUREP-XX,
+ *      never internal Jira fields)
  *
  * Body: {
  *   language, module, platforms, communityNameRaw,
@@ -27,12 +28,22 @@ import type { ClassifyResult } from "@/lib/llm";
 // ─── Duplicate detection helpers ──────────────────────────────────────────────
 
 /**
+ * Generic tokens that carry no discriminating signal.
+ * Excluded from duplicate scoring.
+ */
+const GENERIC_TOKENS = new Set([
+  "error", "falla", "problema", "inconveniente", "issue",
+  "mobile", "web", "app", "usuario", "admin", "administrador",
+  "no", "si", "que", "con", "para", "por", "del", "una", "uno",
+  "los", "las", "the", "and", "not", "can", "hay", "fue",
+  "500", "404", "http", "fail", "failed", "null", "undefined",
+]);
+
+const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
  * Tokenize a string for duplicate comparison.
- * - lowercase
- * - replace _ - . with spaces (so "error_500" → "error 500")
- * - strip remaining punctuation
- * - split on whitespace
- * - filter min 3 chars
+ * - lowercase, replace _ - . with spaces, strip punctuation, split, min 3 chars
  */
 function normalizeTokens(text: string): string[] {
   return text
@@ -40,12 +51,40 @@ function normalizeTokens(text: string): string[] {
     .replace(/[_\-.]/g, " ")
     .replace(/[^\w\sáéíóúñüàèìòùâêîôûäëïöü]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 3);
+    .filter((w) => w.length >= 3 && !GENERIC_TOKENS.has(w));
 }
 
-function dupScore(titleTokens: Set<string>, keywords: string[]): number {
-  const kwTokens = keywords.flatMap(normalizeTokens);
-  return kwTokens.filter((k) => titleTokens.has(k)).length;
+/**
+ * Returns true if a and b share a common substring of minLen+ chars
+ * (word-level: only checks whole words ≥ minLen chars).
+ */
+function shareLongWord(a: string, b: string, minLen = 15): boolean {
+  const wordsA = a.toLowerCase().split(/\s+/).filter((w) => w.length >= minLen);
+  const setB = new Set(b.toLowerCase().split(/\s+/));
+  return wordsA.some((w) => setB.has(w));
+}
+
+/**
+ * Score overlap between new report keywords and a Jira ticket title.
+ * Returns { score, confidence }.
+ */
+function scoreDuplicate(keywords: string[], ticketSummary: string): { score: number; confidence: "high" | "low" } {
+  const newTokens = new Set(keywords.flatMap(normalizeTokens));
+  const ticketTokens = new Set(normalizeTokens(ticketSummary));
+
+  let score = 0;
+  for (const token of newTokens) {
+    if (ticketTokens.has(token)) score += 1;
+  }
+
+  // Bonus for sharing a long specific word (rare, high signal)
+  const fullNew = keywords.join(" ");
+  if (shareLongWord(fullNew, ticketSummary, 15)) score += 2;
+
+  return {
+    score,
+    confidence: score >= 5 ? "high" : "low",
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -75,12 +114,10 @@ export async function POST(req: NextRequest) {
       matched: false as const,
     }));
 
-    // The name used for Jira: canonical if matched, raw otherwise
     const communityName = resolved.matched
       ? (resolved.canonicalName ?? communityNameRaw)
       : communityNameRaw;
 
-    // CX owner from internal resolution (may be enriched later via next_action)
     let cxOwnerName: string | null = resolved.matched ? (resolved.cxOwnerName ?? null) : null;
 
     // ── 2. Fetch module docs ──────────────────────────────────────────────────
@@ -114,7 +151,7 @@ export async function POST(req: NextRequest) {
     // ── 5. Classification decided ─────────────────────────────────────────────
     const classification = aiResult.classification;
 
-    // Non-bug → return immediately (cxOwnerName already resolved above)
+    // Non-bug → return immediately
     if (classification !== "bug_confirmed") {
       return NextResponse.json({ ...aiResult, cxOwnerName });
     }
@@ -129,42 +166,73 @@ export async function POST(req: NextRequest) {
       searchClientsInputs(keywords).catch(() => []),
     ]);
 
-    // ── Jira duplicate check ─────────────────────────────────────────────────
-    const openJiraIssues = jiraIssues.filter((i) => i.status !== "resolved");
-
-    const jiraDup = openJiraIssues.find((issue) => {
-      const titleTokens = new Set(normalizeTokens(issue.summary));
-      return dupScore(titleTokens, keywords) >= 2;
+    // ── Jira duplicate check (module-aware + 60-day window) ──────────────────
+    const now = Date.now();
+    const candidateJiraIssues = jiraIssues.filter((issue) => {
+      // F1: exclude resolved
+      if (issue.status === "resolved") return false;
+      // F2: module filter — skip if modules differ (ignore "general" = untagged)
+      if (
+        issue.module &&
+        issue.module !== "general" &&
+        moduleSlug !== "general" &&
+        issue.module !== moduleSlug
+      ) return false;
+      // F3: 60-day window
+      const ageMs = now - new Date(issue.createdAt).getTime();
+      if (ageMs > SIXTY_DAYS_MS) return false;
+      return true;
     });
 
+    const jiraDup = (() => {
+      let best: { issue: typeof candidateJiraIssues[0]; score: number; confidence: "high" | "low" } | null = null;
+      for (const issue of candidateJiraIssues) {
+        const { score, confidence } = scoreDuplicate(keywords, issue.summary);
+        if (score >= 3 && (!best || score > best.score)) {
+          best = { issue, score, confidence };
+        }
+      }
+      return best;
+    })();
+
     if (jiraDup) {
-      const keyParts = jiraDup.key.split("-");
+      const { issue, confidence } = jiraDup;
+      const keyParts = issue.key.split("-");
       const dupTicketNumber = keyParts.length === 2 ? parseInt(keyParts[1], 10) : undefined;
 
+      // Return ONLY safe fields — no internal Jira data
       return NextResponse.json({
-        ...aiResult,
-        cxOwnerName,
+        // Minimal classification context for the frontend badge
+        action: "classify" as const,
+        classification: aiResult.classification,
+        explanation: aiResult.explanation,
+        // Duplicate block (7 safe fields only)
         isDuplicate: true,
-        duplicateType: "jira" as const,
-        duplicateTitle: jiraDup.summary,
-        duplicateCommentRef: signIssueRef(jiraDup.key),
+        duplicateConfidence: confidence,
         duplicateTicketNumber: dupTicketNumber,
+        duplicateFriendlyStatus: issue.status,
+        duplicateCreatedAt: issue.createdAt,
+        duplicateCommentRef: signIssueRef(issue.key),
+        // cxOwnerName if needed
+        cxOwnerName,
       });
     }
 
     // ── Notion duplicate check ────────────────────────────────────────────────
     const notionDup = notionInputs.find((item) => {
-      const titleTokens = new Set(normalizeTokens(item.title));
-      return dupScore(titleTokens, keywords) >= 2;
+      const { score } = scoreDuplicate(keywords, item.title);
+      return score >= 3;
     });
 
     if (notionDup) {
       return NextResponse.json({
-        ...aiResult,
-        cxOwnerName,
+        action: "classify" as const,
+        classification: aiResult.classification,
+        explanation: aiResult.explanation,
         isDuplicate: true,
-        duplicateType: "notion" as const,
-        duplicateTitle: notionDup.title,
+        duplicateConfidence: "low" as const,
+        duplicateCommentRef: undefined,
+        cxOwnerName,
       });
     }
 
