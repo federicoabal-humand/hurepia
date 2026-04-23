@@ -7,6 +7,15 @@
 import { JIRA, MODULE_TO_JIRA_ID, mapJiraStatusToFriendly } from "./mappings";
 import type { FriendlyStatus } from "./mappings";
 
+/**
+ * Reverse mapping: Jira option ID → internal module slug.
+ * Used to convert the MINI_APP field value back to our module key.
+ * e.g. "10115" → "users", "10122" → "time_off"
+ */
+const JIRA_OPTION_TO_MODULE: Record<string, string> = Object.fromEntries(
+  Object.entries(MODULE_TO_JIRA_ID).map(([key, id]) => [id, key])
+);
+
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 function headers() {
@@ -283,10 +292,17 @@ export async function searchIssuesForCommunity(
         };
       }) => {
         const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
+        // Prefer ID-based lookup (reliable) over display-value (locale-dependent)
+        const optionId =
+          Array.isArray(miniAppRaw) && miniAppRaw[0]?.id
+            ? String(miniAppRaw[0].id)
+            : null;
         const moduleSlug =
-          Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
-            ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
-            : "general";
+          optionId && JIRA_OPTION_TO_MODULE[optionId]
+            ? JIRA_OPTION_TO_MODULE[optionId]
+            : Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
+              ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
+              : "general";
 
         const statusName = issue.fields.status.name;
         const categoryKey = issue.fields.status.statusCategory?.key;
