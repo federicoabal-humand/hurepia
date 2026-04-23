@@ -35,6 +35,12 @@ import {
 } from "@/lib/notion-inputs";
 import { signIssueRef } from "@/lib/token";
 import { MODULE_NOTION_MAP } from "@/lib/module-registry";
+import {
+  buildHelpCenterUrl,
+  HELP_CENTER_BASE,
+  HELP_CENTER_ADMIN_CATEGORY,
+  HELP_CENTER_MODULE_KEYWORDS,
+} from "@/lib/help-center-catalog";
 import { sanitizeForFrontend, sanitizeAiTextFields } from "@/lib/sanitizer";
 import type { ClassifyResult } from "@/lib/llm";
 import type { JiraIssueSummary } from "@/lib/jira";
@@ -208,7 +214,22 @@ export async function POST(req: NextRequest) {
       getRecentTicketsForModule(moduleSlug, 20).catch(() => []),
     ]);
 
-    // ── 4. Call Gemini ────────────────────────────────────────────────────────
+    // ── 4. Build Help Center context for AI prompt ────────────────────────────
+    const helpCenterLang = detectedLanguage === "en" ? "en" : "es";
+    const helpCenterBase = helpCenterLang === "en"
+      ? HELP_CENTER_BASE.en
+      : HELP_CENTER_BASE.es;
+    const helpCenterAdminCategory = helpCenterLang === "en"
+      ? HELP_CENTER_ADMIN_CATEGORY.en
+      : HELP_CENTER_ADMIN_CATEGORY.es;
+    const helpCenterKeywords = HELP_CENTER_MODULE_KEYWORDS[moduleSlug] ?? [];
+    const helpCenterSearchExample = buildHelpCenterUrl(
+      moduleSlug,
+      helpCenterLang,
+      whatHappened
+    );
+
+    // ── 5. Call Gemini ────────────────────────────────────────────────────────
     const aiResult: ClassifyResult = await classifyReport({
       language,
       detectedLanguage,
@@ -228,9 +249,13 @@ export async function POST(req: NextRequest) {
       keywordsOriginal,
       keywordsEs,
       keywordsEn,
+      helpCenterBase,
+      helpCenterAdminCategory,
+      helpCenterKeywords,
+      helpCenterSearchExample,
     });
 
-    // ── 5. Strip all internal links/references from every text field ──────────
+    // ── 6. Strip all internal links/references from every text field ──────────
     // This runs unconditionally on every Gemini response before anything reaches
     // the frontend — notion.so URLs, "documentación interna", etc. are removed.
     const aiResultClean = sanitizeAiTextFields(aiResult);
