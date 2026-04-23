@@ -7,16 +7,17 @@ import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
 import { ReportTab } from "./report-tab";
 import { MyReportsTab } from "./my-reports-tab";
-import { CommunityGate, type GateCommunity } from "./community-gate";
+import { CommunityGate } from "./community-gate";
 
 const STORAGE_KEY = "hureport_community";
 const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-interface StoredCommunity extends GateCommunity {
+interface StoredCommunity {
+  nameRaw: string;
   selectedAt: number;
 }
 
-function readCommunity(): GateCommunity | null {
+function readCommunity(): StoredCommunity | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -25,15 +26,10 @@ function readCommunity(): GateCommunity | null {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
-    return { pageId: stored.pageId, name: stored.name };
+    return stored;
   } catch {
     return null;
   }
-}
-
-function saveCommunity(c: GateCommunity) {
-  const data: StoredCommunity = { ...c, selectedAt: Date.now() };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
 function clearCommunity() {
@@ -45,7 +41,7 @@ export function HuReportWidget() {
   const [lang, setLang] = useState<Lang>("es");
   const [activeTab, setActiveTab] = useState("report");
   const [mounted, setMounted] = useState(false);
-  const [community, setCommunity] = useState<GateCommunity | null>(null);
+  const [community, setCommunity] = useState<StoredCommunity | null>(null);
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -61,12 +57,18 @@ export function HuReportWidget() {
 
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
 
-  const handleCommunitySelect = (c: GateCommunity) => {
-    saveCommunity(c);
-    setCommunity(c);
+  // Called by CommunityGate after it saves to localStorage
+  const handleGateComplete = () => {
+    setCommunity(readCommunity());
   };
 
   const handleChangeCommunity = () => {
+    const confirmed = window.confirm(
+      lang === "es"
+        ? "¿Cambiar comunidad? Se borrarán tus reportes actuales de esta vista."
+        : "Change community? Your current reports view will be cleared."
+    );
+    if (!confirmed) return;
     clearCommunity();
     setCommunity(null);
     setActiveTab("report");
@@ -122,7 +124,7 @@ export function HuReportWidget() {
                 {t("header.title", lang)}
               </h2>
               {community && (
-                <p className="text-xs text-gray-400 leading-tight">{community.name}</p>
+                <p className="text-xs text-gray-400 leading-tight">{community.nameRaw}</p>
               )}
             </div>
           </div>
@@ -158,7 +160,7 @@ export function HuReportWidget() {
         {/* ── Gate or tabs ─────────────────────────────────────────────── */}
         {!community ? (
           <div className="flex-1 overflow-y-auto">
-            <CommunityGate lang={lang} onSelect={handleCommunitySelect} />
+            <CommunityGate lang={lang} onComplete={handleGateComplete} />
           </div>
         ) : (
           <Tabs.Root
@@ -188,7 +190,7 @@ export function HuReportWidget() {
               value="report"
               className="flex-1 overflow-y-auto px-5 py-5 focus:outline-none"
             >
-              <ReportTab lang={lang} community={community} />
+              <ReportTab lang={lang} communityNameRaw={community.nameRaw} />
             </Tabs.Content>
 
             <Tabs.Content
@@ -197,7 +199,7 @@ export function HuReportWidget() {
             >
               <MyReportsTab
                 lang={lang}
-                communityName={community.name}
+                communityName={community.nameRaw}
                 isWidgetOpen={isOpen}
               />
             </Tabs.Content>

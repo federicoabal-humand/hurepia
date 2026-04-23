@@ -1,8 +1,11 @@
 /**
  * GET /api/client?q=banco
- * Searches Notion COMUNIDADES_CLIENTES database for communities by name.
- * Falls back to mock data if Notion is unavailable or returns no results.
- * Response: { id, name }[]
+ *
+ * DEPRECATED: This endpoint is no longer called from the frontend.
+ * Community name is now entered as free text; Notion matching happens
+ * 100% internally in /api/classify and /api/reports via
+ * resolveCommunityInternal(). Kept here for legacy compatibility only.
+ * DO NOT call this route from any frontend component.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { searchCommunities } from "@/lib/notion";

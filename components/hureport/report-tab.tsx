@@ -6,12 +6,11 @@ import { cn } from "@/lib/utils";
 import { MODULES, PLATFORMS } from "@/lib/mappings";
 import { t, type Lang } from "@/lib/i18n";
 import type { ChatTurn } from "@/lib/llm";
-import type { GateCommunity } from "./community-gate";
 import { AiResultCard } from "./ai-result-card";
 
 interface ReportTabProps {
   lang: Lang;
-  community: GateCommunity;
+  communityNameRaw: string;
 }
 
 interface FormState {
@@ -76,7 +75,7 @@ export interface ResolvedResult {
 
 type Step = "form" | "loading" | "asking" | "result";
 
-export function ReportTab({ lang, community }: ReportTabProps) {
+export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
   const [step, setStep] = useState<Step>("form");
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [dragOver, setDragOver] = useState(false);
@@ -125,8 +124,7 @@ export function ReportTab({ lang, community }: ReportTabProps) {
           language: lang,
           module: form.module,
           platforms: form.platforms,
-          communityName: community.name,
-          communityPageId: community.pageId,
+          communityNameRaw,
           whatHappened: form.whatHappened,
           whatExpected: form.whatExpected,
           isBlocking: form.isBlocking,
@@ -245,11 +243,11 @@ export function ReportTab({ lang, community }: ReportTabProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Community read-only badge */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-primary-light border border-primary/20 rounded-lg">
-        <AlertTriangle className="w-4 h-4 text-primary flex-shrink-0" />
-        <span className="text-sm font-medium text-primary">{community.name}</span>
-      </div>
+      {/* Community read-only indicator */}
+      <p className="text-sm text-gray-600">
+        <span className="font-medium">{t("gate.reportingFor", lang)}</span>{" "}
+        <span className="text-primary font-semibold">{communityNameRaw}</span>
+      </p>
 
       {/* Issue details */}
       <section>

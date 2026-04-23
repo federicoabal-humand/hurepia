@@ -1,47 +1,39 @@
 /**
  * GET /api/reports?communityName=Naranja+X
- * Returns HUREP issues for a community, filtered strictly by AFFECTED_CLIENTS label.
- * Validates the communityName against Notion to prevent cross-community data leaks.
- *
- * ticketNumber is the sequential display number (1, 2, 3…).
- * commentRef is a signed token — NEVER returns the raw HUREP-XX key.
+ * Returns HUREP issues for a community.
+ * - Resolves the nameRaw against Notion internally (invisible to frontend).
+ * - If matched: queries Jira by canonical name (sanitized label).
+ * - If not matched: queries Jira by the raw name as typed.
+ * - ticketNumber is the sequential display number (1, 2, 3…).
+ * - commentRef is a signed token — NEVER returns the raw HUREP-XX key.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { searchIssuesForCommunity } from "@/lib/jira";
 import { signIssueRef } from "@/lib/token";
-import { searchCommunities } from "@/lib/notion";
+import { resolveCommunityInternal } from "@/lib/notion";
 
 export async function GET(req: NextRequest) {
-  const communityName = req.nextUrl.searchParams.get("communityName") ?? "";
+  const communityNameRaw = req.nextUrl.searchParams.get("communityName") ?? "";
 
-  if (!communityName.trim()) {
+  if (!communityNameRaw.trim()) {
     return NextResponse.json(
       { error: "communityName is required" },
       { status: 400 }
     );
   }
 
-  // ── Server-side community validation (privacy guard) ────────────────────────
-  // Verify this community exists in Notion before returning any Jira data.
-  // On Notion errors we fail open (allow) so the app keeps working without Notion.
+  // ── Resolve community internally ────────────────────────────────────────────
+  // If name matches Notion → use canonical name for JQL (better accuracy).
+  // If no match → use raw name as typed (ticket still visible to this user).
+  // Match result is NEVER sent to the frontend.
+  let communityName = communityNameRaw;
   try {
-    const notionMatches = await searchCommunities(communityName);
-    // If Notion returned results but none match the requested name → 404
-    if (notionMatches.length > 0) {
-      const exactMatch = notionMatches.some(
-        (c) => c.name.toLowerCase() === communityName.toLowerCase()
-      );
-      // Only block if Notion clearly returned results and none match
-      // (partial names like "Naranj" won't match "Naranja X" exactly, so we only
-      // enforce when the query is the full community name)
-      if (!exactMatch && communityName.length > 5) {
-        // Soft fail: if Notion says "no such community", return empty list
-        // (don't 404 — that would confirm/deny existence)
-        return NextResponse.json([]);
-      }
+    const resolved = await resolveCommunityInternal(communityNameRaw);
+    if (resolved.matched && resolved.canonicalName) {
+      communityName = resolved.canonicalName;
     }
   } catch {
-    // Notion unavailable — continue without validation (fail open)
+    // Notion unavailable — use raw name (fail open)
   }
 
   // ── Fetch Jira tickets filtered by community ────────────────────────────────

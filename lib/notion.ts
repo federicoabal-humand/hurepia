@@ -379,6 +379,108 @@ async function fetchUserName(userId: string, token: string): Promise<string | nu
   }
 }
 
+// ─── Internal community resolution ───────────────────────────────────────────
+
+export interface ResolveResult {
+  matched: boolean;
+  pageId?: string;
+  canonicalName?: string;
+  cxOwnerName?: string | null;
+}
+
+// In-memory cache keyed by normalised nameRaw
+const resolveCache: Record<string, { result: ResolveResult; cachedAt: number }> = {};
+const RESOLVE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Fuzzy-match a raw community name against COMUNIDADES_CLIENTES.
+ * - Normalise: lowercase, trim, strip accents
+ * - Score with Levenshtein (normalised). Threshold ≥ 0.7 to consider a match.
+ * - On match: resolve CX Owner via existing getCxOwnerForCommunity().
+ * - On no match: return { matched: false }.
+ * - Result cached 30 min per nameRaw.
+ * - NEVER surfaces match/no-match info to the frontend.
+ */
+export async function resolveCommunityInternal(
+  nameRaw: string
+): Promise<ResolveResult> {
+  const token = process.env.NOTION_API_TOKEN;
+  if (!token || !nameRaw.trim()) return { matched: false };
+
+  const normalised = normalise(nameRaw);
+  const cached = resolveCache[normalised];
+  if (cached && Date.now() - cached.cachedAt < RESOLVE_CACHE_TTL) {
+    return cached.result;
+  }
+
+  const save = (r: ResolveResult): ResolveResult => {
+    resolveCache[normalised] = { result: r, cachedAt: Date.now() };
+    return r;
+  };
+
+  try {
+    const results = await searchCommunities(nameRaw);
+    if (results.length === 0) return save({ matched: false });
+
+    // Find best-scoring candidate
+    let best: CommunityResult | null = null;
+    let bestScore = 0;
+    for (const r of results) {
+      const score = similarity(normalised, normalise(r.name));
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+
+    if (!best || bestScore < 0.7) return save({ matched: false });
+
+    // Resolve CX Owner using the matched page ID
+    const cx = await getCxOwnerForCommunity(best.id).catch(() => ({ found: false as const }));
+
+    return save({
+      matched: true,
+      pageId: best.id,
+      canonicalName: best.name,
+      cxOwnerName: cx.found ? (cx.cxOwnerName ?? null) : null,
+    });
+  } catch {
+    return save({ matched: false });
+  }
+}
+
+/** Strip accents, lowercase, trim. */
+function normalise(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Levenshtein-based similarity ∈ [0, 1]. */
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.85;
+  const dist = levenshtein(a, b);
+  const maxLen = Math.max(a.length, b.length);
+  return maxLen === 0 ? 1 : 1 - dist / maxLen;
+}
+
+function levenshtein(a: string, b: string): number {
+  const dp = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = temp;
+    }
+  }
+  return dp[b.length];
+}
+
 // ─── Module docs ──────────────────────────────────────────────────────────────
 
 export interface ModuleDocsResult {

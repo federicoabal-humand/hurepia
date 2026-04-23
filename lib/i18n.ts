@@ -139,11 +139,11 @@ const TRANSLATIONS = {
     "platform.api": "API",
 
     // Community Gate
-    "gate.title": "¿En qué comunidad trabajás?",
-    "gate.subtitle": "Identificá tu comunidad para reportar y ver tus tickets.",
-    "gate.placeholder": "Buscá tu comunidad...",
-    "gate.noResults": "Sin resultados. Intentá con otro nombre.",
-    "gate.hint": "Tus reportes quedan asociados a tu comunidad.",
+    "gate.title": "Bienvenido a HuReport AI",
+    "gate.subtitle": "Contanos tu comunidad para empezar.",
+    "gate.placeholder": "Ej: Mi Empresa SA",
+    "gate.continue": "Continuar",
+    "gate.reportingFor": "Reportando para:",
     "header.changeCommunity": "Cambiar comunidad",
 
     // CX routing
@@ -290,11 +290,11 @@ const TRANSLATIONS = {
     "platform.api": "API",
 
     // Community Gate
-    "gate.title": "What community do you work for?",
-    "gate.subtitle": "Identify your community to report issues and view your tickets.",
-    "gate.placeholder": "Search your community...",
-    "gate.noResults": "No results. Try a different name.",
-    "gate.hint": "Your reports will be linked to your community.",
+    "gate.title": "Welcome to HuReport AI",
+    "gate.subtitle": "Tell us your community to get started.",
+    "gate.placeholder": "E.g: My Company Inc",
+    "gate.continue": "Continue",
+    "gate.reportingFor": "Reporting for:",
     "header.changeCommunity": "Change community",
 
     // CX routing
