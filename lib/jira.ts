@@ -353,30 +353,46 @@ export async function searchIssuesByModule(
   const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
   const url = `${base()}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${limit}&fields=${fields}`;
 
+  /** Parse raw Jira issues array into JiraIssueSummary[]. */
+  const parseIssues = (issues: Array<{ key: string; fields: { summary: string; status: { name: string; statusCategory?: { key?: string } }; created: string; [key: string]: unknown } }>) =>
+    issues.map((issue) => {
+      const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
+      const optionId = Array.isArray(miniAppRaw) && miniAppRaw[0]?.id ? String(miniAppRaw[0].id) : null;
+      const mod = optionId && JIRA_OPTION_TO_MODULE[optionId]
+        ? JIRA_OPTION_TO_MODULE[optionId]
+        : Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
+          ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
+          : "general";
+      const statusName = issue.fields.status.name;
+      const categoryKey = issue.fields.status.statusCategory?.key;
+      return {
+        key: issue.key,
+        summary: issue.fields.summary,
+        module: mod,
+        status: mapJiraStatusToFriendly(statusName, categoryKey),
+        createdAt: issue.fields.created,
+      };
+    });
+
   try {
     const res = await fetch(url, { headers: headers() });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.issues ?? []).map(
-      (issue: { key: string; fields: { summary: string; status: { name: string; statusCategory?: { key?: string } }; created: string; [key: string]: unknown } }) => {
-        const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
-        const optionId = Array.isArray(miniAppRaw) && miniAppRaw[0]?.id ? String(miniAppRaw[0].id) : null;
-        const mod = optionId && JIRA_OPTION_TO_MODULE[optionId]
-          ? JIRA_OPTION_TO_MODULE[optionId]
-          : Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
-            ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
-            : "general";
-        const statusName = issue.fields.status.name;
-        const categoryKey = issue.fields.status.statusCategory?.key;
-        return {
-          key: issue.key,
-          summary: issue.fields.summary,
-          module: mod,
-          status: mapJiraStatusToFriendly(statusName, categoryKey),
-          createdAt: issue.fields.created,
-        };
-      }
-    );
+    const issues = data.issues ?? [];
+
+    // Retry once on 0 results — handles Jira JQL indexing latency for freshly
+    // created tickets (can take up to ~30s to appear in JQL search results).
+    // Only applies to cross-community dedup; getRecentTicketsForModule is intentionally
+    // excluded to avoid adding 2s to every normal report flow.
+    if (issues.length === 0) {
+      await new Promise<void>((r) => setTimeout(r, 2000));
+      const res2 = await fetch(url, { headers: headers() });
+      if (!res2.ok) return [];
+      const data2 = await res2.json();
+      return parseIssues(data2.issues ?? []);
+    }
+
+    return parseIssues(issues);
   } catch (err) {
     console.error("[jira] searchIssuesByModule error:", err);
     return [];
