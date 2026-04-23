@@ -354,18 +354,19 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Help center link ─────────────────────────────────────────────── */}
-      {result.helpCenterLink && (
-        <a
-          href={result.helpCenterLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover font-medium transition-colors"
-        >
-          <ExternalLink className="w-4 h-4" />
-          {t("result.viewDocs", lang)}
-        </a>
-      )}
+      {/* ── Help Center link (public only — whitelist enforced client-side too) ── */}
+      {result.helpCenterLink &&
+        /^https?:\/\/([\w-]+\.)*help\.humand\.co(\/|$)/i.test(result.helpCenterLink) && (
+          <a
+            href={result.helpCenterLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary-hover font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            {t("result.viewHelpCenter", lang)}
+          </a>
+        )}
 
       {/* ── CX Manager routing ───────────────────────────────────────────── */}
       {result.nextAction === "contact_cx_manager" && (

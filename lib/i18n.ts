@@ -67,6 +67,7 @@ const TRANSLATIONS = {
     "result.yes": "Sí, enviar sugerencia",
     "result.no": "No, gracias",
     "result.viewDocs": "Ver documentación",
+    "result.viewHelpCenter": "Ver en el Help Center",
     "result.submitAdditional": "Enviar información adicional",
     "result.additionalPlaceholder": "Respondé las preguntas aquí...",
 
@@ -270,6 +271,7 @@ const TRANSLATIONS = {
     "result.yes": "Yes, send suggestion",
     "result.no": "No, thanks",
     "result.viewDocs": "View documentation",
+    "result.viewHelpCenter": "View in Help Center",
     "result.submitAdditional": "Submit additional info",
     "result.additionalPlaceholder": "Answer the questions here...",
 
@@ -471,6 +473,7 @@ const TRANSLATIONS = {
     "result.yes": "Sim",
     "result.no": "Não",
     "result.viewDocs": "Ver documentação",
+    "result.viewHelpCenter": "Ver no Help Center",
     "result.submitAdditional": "Enviar informação adicional",
     "result.additionalPlaceholder": "Responda aqui...",
 
@@ -670,6 +673,7 @@ const TRANSLATIONS = {
     "result.yes": "Oui",
     "result.no": "Non",
     "result.viewDocs": "Voir la documentation",
+    "result.viewHelpCenter": "Voir dans le Help Center",
     "result.submitAdditional": "Envoyer des informations supplémentaires",
     "result.additionalPlaceholder": "Répondez ici...",
 

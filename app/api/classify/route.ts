@@ -35,7 +35,7 @@ import {
 } from "@/lib/notion-inputs";
 import { signIssueRef } from "@/lib/token";
 import { MODULE_NOTION_MAP } from "@/lib/module-registry";
-import { sanitizeForFrontend } from "@/lib/sanitizer";
+import { sanitizeForFrontend, sanitizeAiTextFields } from "@/lib/sanitizer";
 import type { ClassifyResult } from "@/lib/llm";
 import type { JiraIssueSummary } from "@/lib/jira";
 
@@ -222,7 +222,14 @@ export async function POST(req: NextRequest) {
       keywordsEn,
     });
 
-    // ── 5. Handle guardrail rejection ─────────────────────────────────────────
+    // ── 5. Strip all internal links/references from every text field ──────────
+    // This runs unconditionally on every Gemini response before anything reaches
+    // the frontend — notion.so URLs, "documentación interna", etc. are removed.
+    const aiResultClean = sanitizeAiTextFields(aiResult);
+    // Re-assign so all downstream code uses the sanitized version
+    Object.assign(aiResult, aiResultClean);
+
+    // ── 6. Handle guardrail rejection ─────────────────────────────────────────
     if (aiResult.action === "reject") {
       console.warn(
         JSON.stringify({
@@ -503,6 +510,7 @@ export async function POST(req: NextRequest) {
       classification !== "bug_confirmed" &&
       classification !== "bug_known" // bug_known fell through here → treat as bug_confirmed
     ) {
+      // aiResult already sanitized above; spread it safely
       return NextResponse.json({ ...aiResult, cxOwnerName });
     }
 
