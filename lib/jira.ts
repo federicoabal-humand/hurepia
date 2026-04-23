@@ -264,7 +264,7 @@ export async function searchIssuesForCommunity(
     jqlParts.push(`reporter = "${safeEmail}"`);
   } else if (p.communityName?.trim()) {
     const safe = sanitizeLabelValue(p.communityName).replace(/"/g, '\\"');
-    jqlParts.push(`"Affected Clients" = "${safe}"`);
+    jqlParts.push(`"Affected Clients" ~ "${safe}"`);
   } else {
     // No filter → return empty (never dump all tickets)
     return [];
@@ -338,5 +338,103 @@ export async function addJiraComment(
   });
   if (!res.ok) {
     throw new Error(`Jira comment failed: ${await res.text()}`);
+  }
+}
+
+// ─── parseAffectedClients helper ─────────────────────────────────────────────
+
+export function parseAffectedClients(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return (raw as unknown[])
+      .map((item) =>
+        typeof item === "string"
+          ? item
+          : typeof item === "object" && item !== null
+          ? ((item as Record<string, string>).value ||
+              (item as Record<string, string>).name ||
+              "")
+          : ""
+      )
+      .filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[|,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+// ─── addCommunityToAffectedClients ───────────────────────────────────────────
+
+export async function addCommunityToAffectedClients(
+  jiraKey: string,
+  communityToAdd: string
+): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(
+      `${base()}/rest/api/3/issue/${jiraKey}?fields=${JIRA.FIELDS.AFFECTED_CLIENTS}`,
+      { headers: headers(), signal: controller.signal }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    const currentRaw = data.fields?.[JIRA.FIELDS.AFFECTED_CLIENTS];
+    const currentArr: string[] = parseAffectedClients(currentRaw);
+
+    // Already present? (case-insensitive)
+    if (currentArr.some((c) => c.toLowerCase() === communityToAdd.toLowerCase())) return true;
+
+    const sanitized = sanitizeLabelValue(communityToAdd);
+    // labels field: use update/add syntax
+    const body = { update: { [JIRA.FIELDS.AFFECTED_CLIENTS]: [{ add: sanitized }] } };
+    const putRes = await fetch(`${base()}/rest/api/3/issue/${jiraKey}`, {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify(body),
+    });
+    return putRes.ok || putRes.status === 204;
+  } catch (err) {
+    console.error("[jira] addCommunityToAffectedClients failed:", err);
+    return false;
+  }
+}
+
+// ─── removeCommunityFromAffectedClients ──────────────────────────────────────
+
+export async function removeCommunityFromAffectedClients(
+  jiraKey: string,
+  communityToRemove: string
+): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(
+      `${base()}/rest/api/3/issue/${jiraKey}?fields=${JIRA.FIELDS.AFFECTED_CLIENTS}`,
+      { headers: headers(), signal: controller.signal }
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    const currentRaw = data.fields?.[JIRA.FIELDS.AFFECTED_CLIENTS];
+    const currentArr: string[] = parseAffectedClients(currentRaw);
+
+    const match = currentArr.find((c) => c.toLowerCase() === communityToRemove.toLowerCase());
+    if (!match) return true; // already not there
+
+    const body = { update: { [JIRA.FIELDS.AFFECTED_CLIENTS]: [{ remove: match }] } };
+    const putRes = await fetch(`${base()}/rest/api/3/issue/${jiraKey}`, {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify(body),
+    });
+    return putRes.ok || putRes.status === 204;
+  } catch (err) {
+    console.error("[jira] removeCommunityFromAffectedClients failed:", err);
+    return false;
   }
 }

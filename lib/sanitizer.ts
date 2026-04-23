@@ -13,6 +13,7 @@ const BLOCKED_FIELDS = new Set([
   "key",
   "jiraKey",
   "jira_key",
+  "ciJiraKey",
   "pageId",
   "page_id",
   "notionId",

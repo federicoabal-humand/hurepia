@@ -39,7 +39,7 @@ const INITIAL_FORM: FormState = {
 
 // Shape of the full API response from /api/classify
 export interface ClassifyApiResponse {
-  action: "ask" | "classify";
+  action?: "ask" | "classify" | "reject";
   question?: string;
   classification?: string;
   summary?: string;
@@ -47,6 +47,13 @@ export interface ClassifyApiResponse {
   help_center_link?: string;
   next_action?: "contact_cx_manager" | "retry_after_fix" | "resolve" | null;
   keywords?: string[];
+  // Guardrail rejection
+  rejected?: boolean;
+  rejectionReason?: string;
+  message?: string;
+  // feature_request CI-Mock
+  isDuplicateCI?: boolean;
+  affectedClientAdded?: boolean;
   // New ticket
   ticketNumber?: number;
   commentRef?: string;
@@ -84,6 +91,12 @@ export interface ResolvedResult {
   severidad?: "alta" | "media" | "baja";
   /** bug_already_resolved: the issue was fixed recently */
   isResolved?: boolean;
+  /** Guardrail rejection */
+  rejected?: boolean;
+  message?: string;
+  rejectionReason?: string;
+  /** feature_request duplicate CI-Mock */
+  isDuplicateCI?: boolean;
 }
 
 type Step = "form" | "loading" | "asking" | "result" | "error";
@@ -165,6 +178,19 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
         return;
       }
 
+      // Handle guardrail rejection
+      if (data.rejected) {
+        setResolved({
+          classification: "needs_more_info",
+          explanation: data.message ?? "",
+          rejected: true,
+          message: data.message,
+          rejectionReason: data.rejectionReason,
+        });
+        setStep("result");
+        return;
+      }
+
       // action === "classify" — API handled everything
       setResolved({
         classification: data.classification ?? "needs_more_info",
@@ -183,6 +209,8 @@ export function ReportTab({ lang, communityNameRaw }: ReportTabProps) {
         cxOwnerName: data.cxOwnerName,
         severidad: data.severidad,
         isResolved: data.isResolved,
+        isDuplicateCI: data.isDuplicateCI,
+        message: data.message,
       });
       setStep("result");
     } catch (err) {

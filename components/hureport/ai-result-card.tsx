@@ -16,14 +16,21 @@ import {
   Lightbulb,
   Flame,
   Wrench,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Classification } from "@/lib/mappings";
 import type { ResolvedResult } from "./report-tab";
 import { t, type Lang } from "@/lib/i18n";
 
-// Extend ResolvedResult with isResolved (bug_already_resolved case)
-type ResultWithResolved = ResolvedResult & { isResolved?: boolean };
+// Extend ResolvedResult with extra fields
+type ResultWithResolved = ResolvedResult & {
+  isResolved?: boolean;
+  rejected?: boolean;
+  message?: string;
+  rejectionReason?: string;
+  isDuplicateCI?: boolean;
+};
 
 interface Props {
   result: ResultWithResolved;
@@ -111,6 +118,30 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dupDismissed, setDupDismissed] = useState(false);
 
+  // ── Guardrail rejection ──────────────────────────────────────────────────────
+  if (result.rejected) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 bg-gray-50 border border-gray-200 rounded-xl">
+          <Info className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-gray-700">
+            {result.message ??
+              (lang === "es"
+                ? "Solo puedo ayudarte con reportes de inconvenientes sobre el módulo."
+                : "I can only help with module issue reports.")}
+          </p>
+        </div>
+        <button
+          onClick={onReportAnother}
+          className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          <RotateCcw className="w-4 h-4" />
+          {t("result.reportAnother", lang)}
+        </button>
+      </div>
+    );
+  }
+
   // ── bug_already_resolved ─────────────────────────────────────────────────────
   if (result.isResolved || result.classification === "bug_already_resolved") {
     return (
@@ -152,6 +183,49 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
             {result.explanation && (
               <p className="text-sm text-gray-700 mt-2 leading-relaxed">{result.explanation}</p>
             )}
+          </div>
+        </div>
+        <button
+          onClick={onReportAnother}
+          className="flex items-center gap-2 w-full justify-center px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          <RotateCcw className="w-4 h-4" />
+          {t("result.reportAnother", lang)}
+        </button>
+      </div>
+    );
+  }
+
+  // ── feature_request ──────────────────────────────────────────────────────────
+  if (result.classification === "feature_request") {
+    return (
+      <div className="space-y-4">
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <div className="flex items-start gap-3">
+            <Lightbulb className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-2">
+              <h3 className="font-semibold text-sm text-gray-900">
+                {result.isDuplicateCI
+                  ? lang === "es"
+                    ? "Sugerencia ya registrada"
+                    : lang === "pt"
+                    ? "Sugestão já registrada"
+                    : lang === "fr"
+                    ? "Suggestion déjà enregistrée"
+                    : "Suggestion already registered"
+                  : lang === "es"
+                  ? "Sugerencia registrada"
+                  : lang === "pt"
+                  ? "Sugestão registrada"
+                  : lang === "fr"
+                  ? "Suggestion enregistrée"
+                  : "Suggestion registered"}
+              </h3>
+              {result.message && <p className="text-sm text-gray-700">{result.message}</p>}
+              {result.explanation && (
+                <p className="text-sm text-gray-600">{result.explanation}</p>
+              )}
+            </div>
           </div>
         </div>
         <button
@@ -240,7 +314,13 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
       )}
 
       {/* ── Classification badge ─────────────────────────────────────────── */}
-      <div className={cn("flex items-center gap-2 px-4 py-3 rounded-xl border", config.bg, config.border)}>
+      <div
+        className={cn(
+          "flex items-center gap-2 px-4 py-3 rounded-xl border",
+          config.bg,
+          config.border
+        )}
+      >
         <Icon className={cn("w-5 h-5 flex-shrink-0", config.text)} />
         <span className={cn("font-semibold text-sm", config.text)}>
           {t(`badge.${cls}` as Parameters<typeof t>[0], lang)}
@@ -348,9 +428,11 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
             disabled={!additionalText.trim() || isSubmitting}
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors"
           >
-            {isSubmitting
-              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              : <Send className="w-4 h-4" />}
+            {isSubmitting ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
             {t("result.submitAdditional", lang)}
           </button>
         </div>

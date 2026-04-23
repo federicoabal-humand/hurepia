@@ -14,6 +14,7 @@
 export interface AdminContext {
   mode: "demo" | "embedded" | "standalone";
   communityName: string;
+  communityNameRaw?: string;
   adminName?: string;
   adminEmail?: string;
   instanceId?: number;
@@ -23,20 +24,37 @@ export interface AdminContext {
 
 // ── Hardcoded demo presets ─────────────────────────────────────────────────────
 const DEMO_PRESETS: Record<string, Omit<AdminContext, "mode">> = {
+  nike: {
+    communityName: "Nike Argentina",
+    communityNameRaw: "Nike Argentina",
+    adminName: "Federico Abal",
+    adminEmail: "federico.abal@nike.co",
+    instanceId: 198356,
+    verified: false,
+  },
+  demo2: {
+    communityName: "Tech Corp Demo",
+    communityNameRaw: "Tech Corp Demo",
+    adminName: "María García",
+    adminEmail: "maria@techcorp.demo",
+    instanceId: 99999,
+    verified: false,
+  },
   juan_naranja: {
     communityName: "Naranja",
+    communityNameRaw: "Naranja",
     adminName: "Juan Pérez",
+    adminEmail: "juan@naranja.demo",
     instanceId: 12345,
+    verified: false,
   },
   maria_tech: {
     communityName: "Tech Corp",
+    communityNameRaw: "Tech Corp",
     adminName: "María García",
+    adminEmail: "maria@tech.demo",
     instanceId: 67890,
-  },
-  demo: {
-    communityName: "Acme Corp",
-    adminName: "Demo User",
-    instanceId: 99999,
+    verified: false,
   },
 };
 

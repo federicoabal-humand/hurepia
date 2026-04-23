@@ -14,6 +14,7 @@ import {
   RefreshCcw,
   Lightbulb,
   Wrench,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t, type Lang } from "@/lib/i18n";
@@ -67,7 +68,13 @@ const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
 
 const POLL_INTERVAL_MS = 30_000;
 
-export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWidgetOpen }: MyReportsTabProps) {
+export function MyReportsTab({
+  lang,
+  communityName,
+  instanceId,
+  adminEmail,
+  isWidgetOpen,
+}: MyReportsTabProps) {
   const [tickets, setTickets] = useState<TicketResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,35 +84,45 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
   const [sending, setSending] = useState(false);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
+  // New state for phases 4/5
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [addingAffectedId, setAddingAffectedId] = useState<string | null>(null);
+  const [affectedCommunityText, setAffectedCommunityText] = useState("");
+  const [affectedAddedIds, setAffectedAddedIds] = useState<Set<string>>(new Set());
+
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
-  const fetchTickets = useCallback(async (isBackground = false) => {
-    if (!mountedRef.current) return;
-    if (isBackground) setRefreshing(true);
-    else setLoading(true);
-    try {
-      // Build query params in priority order: instanceId > adminEmail > communityName
-      const sp = new URLSearchParams();
-      if (instanceId) {
-        sp.set("instanceId", String(instanceId));
-      } else if (adminEmail) {
-        sp.set("adminEmail", adminEmail);
-      } else if (communityName) {
-        sp.set("communityName", communityName);
+  const fetchTickets = useCallback(
+    async (isBackground = false) => {
+      if (!mountedRef.current) return;
+      if (isBackground) setRefreshing(true);
+      else setLoading(true);
+      try {
+        // Build query params in priority order: instanceId > adminEmail > communityName
+        const sp = new URLSearchParams();
+        if (instanceId) {
+          sp.set("instanceId", String(instanceId));
+        } else if (adminEmail) {
+          sp.set("adminEmail", adminEmail);
+        } else if (communityName) {
+          sp.set("communityName", communityName);
+        }
+        const res = await fetch(`/api/reports?${sp.toString()}`);
+        const data: TicketResponse[] = await res.json();
+        if (mountedRef.current) setTickets(data);
+      } catch {
+        // keep current tickets on error
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-      const res = await fetch(`/api/reports?${sp.toString()}`);
-      const data: TicketResponse[] = await res.json();
-      if (mountedRef.current) setTickets(data);
-    } catch {
-      // keep current tickets on error
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [communityName, instanceId, adminEmail]);
+    },
+    [communityName, instanceId, adminEmail]
+  );
 
   // Start/stop polling based on widget open state and page visibility
   const startPolling = useCallback(() => {
@@ -170,6 +187,46 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
     }
   };
 
+  const handleRemoveFromHistory = async (ticket: TicketResponse) => {
+    setRemovingId(ticket.id);
+    try {
+      await fetch(`/api/tickets/${ticket.commentRef}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminCommunity: communityName,
+          adminEmail: adminEmail ?? "",
+          friendlyStatus: ticket.status,
+        }),
+      });
+      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
+      setRemoveConfirmId(null);
+    } catch {
+      /* ignore */
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const handleAddAffectedCommunity = async (ticket: TicketResponse) => {
+    if (!affectedCommunityText.trim()) return;
+    try {
+      await fetch(`/api/tickets/${ticket.commentRef}/affected-client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          communityNameToAdd: affectedCommunityText.trim(),
+          adminEmail: adminEmail ?? "",
+        }),
+      });
+      setAffectedAddedIds((prev) => new Set([...prev, ticket.id]));
+      setAddingAffectedId(null);
+      setAffectedCommunityText("");
+    } catch {
+      /* ignore */
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -223,12 +280,19 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
               <span className="flex-1 text-sm text-gray-800 truncate">{ticket.summary}</span>
-              <span className={cn("flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium", STATUS_STYLES[ticket.status])}>
+              <span
+                className={cn(
+                  "flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium",
+                  STATUS_STYLES[ticket.status]
+                )}
+              >
                 {t(`status.${ticket.status}` as Parameters<typeof t>[0], lang)}
               </span>
-              {isExpanded
-                ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+              {isExpanded ? (
+                <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              )}
             </button>
 
             {/* Expanded detail */}
@@ -236,7 +300,8 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
               <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-4">
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                   <span>
-                    <span className="font-medium">{t("reports.date", lang)}:</span>{" "}{ticket.date}
+                    <span className="font-medium">{t("reports.date", lang)}:</span>{" "}
+                    {ticket.date}
                   </span>
                   <span>
                     <span className="font-medium">{t("reports.module", lang)}:</span>{" "}
@@ -250,7 +315,10 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
 
                 <div className="flex flex-wrap gap-1">
                   {(ticket.platforms ?? []).map((p) => (
-                    <span key={p} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs">
+                    <span
+                      key={p}
+                      className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs"
+                    >
                       {t(`platform.${p}` as Parameters<typeof t>[0], lang)}
                     </span>
                   ))}
@@ -262,13 +330,23 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
                   <div className="flex flex-wrap gap-2">
                     {(ticket.evidenceUrls ?? []).map((url, i) => (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img key={i} src={url} alt={`Evidence ${i + 1}`} className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                      <img
+                        key={i}
+                        src={url}
+                        alt={`Evidence ${i + 1}`}
+                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                      />
                     ))}
                   </div>
                 )}
 
                 {ticket.url && (
-                  <a href={ticket.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline break-all">
+                  <a
+                    href={ticket.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary underline break-all"
+                  >
                     {ticket.url}
                   </a>
                 )}
@@ -294,14 +372,19 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
                         disabled={!infoText.trim() || sending}
                         className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors"
                       >
-                        {sending
-                          ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          : <Send className="w-3 h-3" />}
+                        {sending ? (
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Send className="w-3 h-3" />
+                        )}
                         {t("reports.addInfo.submit", lang)}
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setAddInfoId(null); setInfoText(""); }}
+                        onClick={() => {
+                          setAddInfoId(null);
+                          setInfoText("");
+                        }}
                         className="px-3 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
                       >
                         {t("reports.addInfo.cancel", lang)}
@@ -318,6 +401,138 @@ export function MyReportsTab({ lang, communityName, instanceId, adminEmail, isWi
                     {t("reports.addInfo", lang)}
                   </button>
                 )}
+
+                {/* Add affected community */}
+                {affectedAddedIds.has(ticket.id) ? (
+                  <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                    <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    {lang === "es"
+                      ? "Comunidad agregada al ticket"
+                      : lang === "pt"
+                      ? "Comunidade adicionada ao ticket"
+                      : lang === "fr"
+                      ? "Communauté ajoutée au ticket"
+                      : "Community added to ticket"}
+                  </div>
+                ) : addingAffectedId === ticket.id ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-gray-600">
+                      {lang === "es"
+                        ? "¿Hay otras comunidades afectadas?"
+                        : lang === "pt"
+                        ? "Há outras comunidades afetadas?"
+                        : lang === "fr"
+                        ? "D'autres communautés sont-elles concernées ?"
+                        : "Are other communities affected?"}
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        value={affectedCommunityText}
+                        onChange={(e) => setAffectedCommunityText(e.target.value)}
+                        placeholder={
+                          lang === "es"
+                            ? "Nombre de la comunidad"
+                            : lang === "pt"
+                            ? "Nome da comunidade"
+                            : lang === "fr"
+                            ? "Nom de la communauté"
+                            : "Community name"
+                        }
+                        className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddAffectedCommunity(ticket)}
+                        disabled={!affectedCommunityText.trim()}
+                        className="px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors"
+                      >
+                        {lang === "es" ? "Agregar" : "Add"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddingAffectedId(null);
+                          setAffectedCommunityText("");
+                        }}
+                        className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAddingAffectedId(ticket.id)}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
+                  >
+                    {lang === "es"
+                      ? "¿Otras comunidades afectadas?"
+                      : lang === "pt"
+                      ? "Outras comunidades afetadas?"
+                      : lang === "fr"
+                      ? "Autres communautés ?"
+                      : "Other communities affected?"}
+                  </button>
+                )}
+
+                {/* Remove from history (only for resolved tickets) */}
+                {ticket.status === "resolved" &&
+                  (removeConfirmId === ticket.id ? (
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                      <p className="text-xs text-gray-700">
+                        {lang === "es"
+                          ? "Este ticket ya está resuelto. ¿Querés quitarlo de tu historial? El ticket sigue vivo para otras comunidades."
+                          : lang === "pt"
+                          ? "Este ticket foi resolvido. Se removê-lo, deixa de aparecer no seu histórico."
+                          : lang === "fr"
+                          ? "Ce ticket est résolu. Si vous le retirez, il n'apparaîtra plus dans votre historique."
+                          : "This ticket is resolved. Remove it from your history? It stays active for other communities."}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFromHistory(ticket)}
+                          disabled={removingId === ticket.id}
+                          className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+                        >
+                          {removingId === ticket.id ? (
+                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : lang === "es" ? (
+                            "Sí, quitar"
+                          ) : lang === "pt" ? (
+                            "Sim, remover"
+                          ) : lang === "fr" ? (
+                            "Oui, retirer"
+                          ) : (
+                            "Yes, remove"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRemoveConfirmId(null)}
+                          className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+                        >
+                          {lang === "es" ? "Cancelar" : "Cancel"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setRemoveConfirmId(ticket.id)}
+                      className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {lang === "es"
+                        ? "Quitar de mi historial"
+                        : lang === "pt"
+                        ? "Remover do meu histórico"
+                        : lang === "fr"
+                        ? "Retirer de mon historique"
+                        : "Remove from my history"}
+                    </button>
+                  ))}
               </div>
             )}
           </div>
