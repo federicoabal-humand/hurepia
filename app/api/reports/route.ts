@@ -51,21 +51,25 @@ export async function GET(req: NextRequest) {
       communityName: !instanceId && !adminEmail ? resolvedCommunityName : undefined,
     });
 
-    const tickets = issues.map((issue, idx) => ({
-      id: issue.key,
-      ticketNumber: idx + 1,
-      summary: issue.summary,
-      module: issue.module,
-      status: issue.status,
-      date: issue.createdAt.slice(0, 10),
-      commentRef: signIssueRef(issue.key),
-      description: issue.summary,
-      classification: "bug_confirmed" as const,
-      platforms: [] as string[],
-      isBlocking: false,
-      usersAffected: "1" as const,
-      evidenceUrls: [] as string[],
-    }));
+    const tickets = issues.map((issue, idx) => {
+      const commentRef = signIssueRef(issue.key);
+      return {
+        // id = opaque signed token — NEVER the raw HUREP-XX key
+        id: commentRef,
+        ticketNumber: idx + 1,
+        summary: issue.summary,
+        module: issue.module,
+        status: issue.status,
+        date: issue.createdAt.slice(0, 10),
+        commentRef,
+        description: issue.summary,
+        classification: "bug_confirmed" as const,
+        platforms: [] as string[],
+        isBlocking: false,
+        usersAffected: "1" as const,
+        evidenceUrls: [] as string[],
+      };
+    });
 
     return NextResponse.json(tickets);
   } catch (err) {
