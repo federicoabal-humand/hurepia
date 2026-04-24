@@ -297,17 +297,54 @@ NUNCA inventes. Si no sabés, preguntá.
 
 == HELP CENTER ==
 
-Tenés un Help Center público con buscador. URLs disponibles:
-
 Help Center base: ${(input as { helpCenterBase?: string }).helpCenterBase ?? "https://help.humand.co/hc/es-419"}
-Búsqueda: agregá /search?query=KEYWORDS al base.
-  Ejemplo ES: https://help.humand.co/hc/es-419/search?query=vacaciones+feriados
-  Ejemplo EN: https://help.humand.co/hc/en-us/search?query=time+off+policy
 Categoría Administradores: ${(input as { helpCenterAdminCategory?: string }).helpCenterAdminCategory ?? "https://help.humand.co/hc/es-419/categories/21664670533139-Ayuda-para-Administradores"}
-Keywords del módulo ${input.moduleDisplayName}: ${JSON.stringify((input as { helpCenterKeywords?: string[] }).helpCenterKeywords ?? [])}
-Link sugerido para este reporte: ${(input as { helpCenterSearchExample?: string }).helpCenterSearchExample ?? "https://help.humand.co/hc/es-419"}
 
-OBLIGACIÓN: si la clasificación es "configuration_error" o "expected_behavior", DEBÉS incluir en explanation un link al Help Center. Usá el link sugerido arriba o armá tu propio link con las keywords más relevantes del reporte.
+GENERACIÓN DEL HELP CENTER LINK:
+
+Cuando incluyas un help_center_link, el query debe usar solo 2-4 keywords canónicas del módulo y el concepto clave. NUNCA uses la frase literal del admin.
+
+Mapa de keywords canónicas por módulo:
+- users → 'usuarios perfil'
+- time_off → 'vacaciones ausencias feriados'
+- time_tracking → 'time tracking asistencia'
+- time_planning → 'time planning turnos'
+- attendance → 'fichaje asistencia'
+- chats → 'chats mensajes'
+- news → 'novedades publicaciones'
+- knowledge / knowledge_libraries / library → 'librerias documentos segmentacion'
+- learning → 'learning cursos'
+- onboarding → 'onboarding tareas'
+- events → 'eventos calendario'
+- groups → 'grupos segmentacion'
+- my_documents / personal_documents → 'documentos personales'
+- org_chart → 'organigrama estructura'
+- workflows → 'workflows automatizaciones'
+- automations → 'automatizaciones'
+- marketplace → 'marketplace beneficios'
+- kudos → 'kudos reconocimientos'
+- ats / recruiting → 'ats recruiting candidatos'
+- service_management → 'canales de consulta'
+- (otros módulos) → nombre del módulo en español + 'configuracion'
+
+Opcionalmente sumá 1-2 keywords del concepto específico SOLO si son términos Humand canónicos (no palabras del admin).
+
+EJEMPLOS:
+Reporte: 'no aparecen los feriados de Argentina'
+URL correcta: https://help.humand.co/hc/es-419/search?query=vacaciones+feriados
+
+Reporte: 'los empleados no pueden fichar'
+URL correcta: https://help.humand.co/hc/es-419/search?query=fichaje+asistencia
+
+Reporte: 'la segmentación de la librería no se aplicó'
+URL correcta: https://help.humand.co/hc/es-419/search?query=librerias+segmentacion
+
+PROHIBIDO en el query:
+- Incluir frases largas del reporte del admin
+- Incluir nombres propios (Nike, Argentina, nombres de personas o comunidades)
+- Query de más de 4 keywords o menos de 2
+
+OBLIGACIÓN: si la clasificación es "configuration_error" o "expected_behavior", DEBÉS incluir en explanation un link al Help Center construido con las keywords canónicas del módulo.
 
 Formato sugerido en explanation:
 "[...explicación...] Podés encontrar el paso a paso en el Help Center: {URL}"
