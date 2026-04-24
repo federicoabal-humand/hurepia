@@ -111,6 +111,44 @@ function cleanSummaryForDisplay(text: string | undefined): string {
   return text;
 }
 
+/**
+ * Generates a short, compact title for the ticket list row (≤60 chars).
+ * Removes the "[Platform] Module | " prefix and truncates intelligently:
+ * - Prefers to cut at first sentence (. ! ?) if found within 60 chars
+ * - Otherwise truncates to 55 chars at a word boundary with ellipsis
+ *
+ * "[Admin] Users | No puedo eliminar usuarios de la empresa"
+ *   → "No puedo eliminar usuarios de la empresa" (if < 60 chars, no truncation)
+ * "[Admin] Users | Este es un error muy largo que sigue..."
+ *   → "Este es un error muy largo que sigue…" (truncated at word boundary)
+ */
+function shortSummaryForList(text: string | undefined): string {
+  if (!text) return "";
+
+  // Quitar prefijo "[Plataforma] Módulo | "
+  let cleaned = text;
+  const pipeIdx = text.indexOf(" | ");
+  if (pipeIdx !== -1 && text.startsWith("[")) {
+    cleaned = text.slice(pipeIdx + 3).trim();
+  }
+
+  // Cortar en primera oración si hay punto antes de 60 chars
+  const firstPeriod = cleaned.search(/[.!?]/);
+  if (firstPeriod > 0 && firstPeriod < 60) {
+    return cleaned.slice(0, firstPeriod + 1).trim();
+  }
+
+  // Si la oración es larga, truncar a 55 chars en un espacio
+  if (cleaned.length > 58) {
+    let cut = cleaned.slice(0, 55);
+    const lastSpace = cut.lastIndexOf(" ");
+    if (lastSpace > 30) cut = cut.slice(0, lastSpace);
+    return cut.trim() + "…";
+  }
+
+  return cleaned.trim();
+}
+
 export function MyReportsTab({
   lang,
   communityName,
@@ -327,7 +365,7 @@ export function MyReportsTab({
               <span className="text-xs font-semibold text-primary whitespace-nowrap">
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
-              <span className="flex-1 text-sm text-gray-800 truncate">{cleanSummaryForDisplay(ticket.summary)}</span>
+              <span className="flex-1 text-sm text-gray-800 truncate">{shortSummaryForList(ticket.summary)}</span>
               <span
                 className={cn(
                   "flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium",
