@@ -396,6 +396,98 @@ export async function searchIssuesForCommunity(
   }
 }
 
+// ─── Paginated all-results variant — used by /api/reports only ───────────────
+
+/**
+ * Fetches ALL HUREP issues for a community without the artificial 50-result cap.
+ * Paginates through Jira (100 per page) up to a safety ceiling of 500.
+ * NOT used by classify/dedup flows — those use searchIssuesForCommunity.
+ */
+export async function searchAllIssuesForCommunity(
+  params: SearchIssuesParams
+): Promise<JiraIssueSummary[]> {
+  const jqlParts = [`project = ${JIRA.PROJECT_KEY}`, `issuetype = Bug`];
+
+  if (params.instanceId) {
+    jqlParts.push(`cf[10046] = "instanceId_${params.instanceId}"`);
+  } else if (params.adminEmail) {
+    const safeEmail = params.adminEmail.replace(/"/g, '\\"');
+    jqlParts.push(`reporter = "${safeEmail}"`);
+  } else if (params.communityName?.trim()) {
+    const safe = sanitizeLabelValue(params.communityName).replace(/"/g, '\\"');
+    jqlParts.push(`cf[10046] = "${safe}"`);
+  } else {
+    return [];
+  }
+
+  const jql = jqlParts.join(" AND ") + " ORDER BY created DESC";
+  const fields = ["summary", "status", "created", JIRA.FIELDS.MINI_APP].join(",");
+  const PAGE_SIZE = 100;
+  const MAX_RESULTS = 500; // safety ceiling
+
+  const mapIssue = (issue: {
+    key: string;
+    fields: {
+      summary: string;
+      status: { name: string; statusCategory?: { key?: string } };
+      created: string;
+      [key: string]: unknown;
+    };
+  }): JiraIssueSummary => {
+    const miniAppRaw = issue.fields[JIRA.FIELDS.MINI_APP];
+    const optionId =
+      Array.isArray(miniAppRaw) && miniAppRaw[0]?.id
+        ? String(miniAppRaw[0].id)
+        : null;
+    const moduleSlug =
+      optionId && JIRA_OPTION_TO_MODULE[optionId]
+        ? JIRA_OPTION_TO_MODULE[optionId]
+        : Array.isArray(miniAppRaw) && miniAppRaw[0]?.value
+          ? (miniAppRaw[0].value as string).toLowerCase().replace(/\s+/g, "_")
+          : "general";
+    const statusName = issue.fields.status.name;
+    const categoryKey = issue.fields.status.statusCategory?.key;
+    return {
+      key:       issue.key,
+      summary:   issue.fields.summary,
+      module:    moduleSlug,
+      status:    mapJiraStatusToFriendly(statusName, categoryKey),
+      createdAt: issue.fields.created,
+    };
+  };
+
+  const all: JiraIssueSummary[] = [];
+  let startAt = 0;
+
+  try {
+    while (all.length < MAX_RESULTS) {
+      const url =
+        `${base()}/rest/api/3/search/jql` +
+        `?jql=${encodeURIComponent(jql)}` +
+        `&maxResults=${PAGE_SIZE}` +
+        `&startAt=${startAt}` +
+        `&fields=${fields}`;
+
+      const res = await fetch(url, { headers: headers() });
+      if (!res.ok) {
+        console.warn("[jira] searchAllIssues page failed:", await res.text());
+        break;
+      }
+      const data = await res.json();
+      const page: JiraIssueSummary[] = (data.issues ?? []).map(mapIssue);
+      all.push(...page);
+
+      // Stop if this page was the last one
+      if (page.length < PAGE_SIZE) break;
+      startAt += PAGE_SIZE;
+    }
+  } catch (err) {
+    console.error("[jira] searchAllIssues error:", err);
+  }
+
+  return all;
+}
+
 // ─── Search issues by module (cross-community) ───────────────────────────────
 
 /**

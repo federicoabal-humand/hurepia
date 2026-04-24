@@ -11,7 +11,7 @@
  * - ticketNumber is a sequential display number (1, 2, 3…).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { searchIssuesForCommunity } from "@/lib/jira";
+import { searchAllIssuesForCommunity } from "@/lib/jira";
 import { signIssueRef, verifyIssueRef } from "@/lib/token";
 import { resolveCommunityInternal } from "@/lib/notion";
 import { mapJiraStatusToFriendly } from "@/lib/mappings";
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const issues = await searchIssuesForCommunity({
+    const issues = await searchAllIssuesForCommunity({
       instanceId,
       adminEmail: adminEmail || undefined,
       communityName: !instanceId && !adminEmail ? resolvedCommunityName : undefined,
