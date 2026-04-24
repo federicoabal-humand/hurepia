@@ -70,6 +70,30 @@ const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
 
 const POLL_INTERVAL_MS = 30_000;
 
+// ─── localStorage hide helpers ────────────────────────────────────────────────
+// "Delete from history" is purely visual: the ticket is hidden locally for this
+// admin, but the Jira ticket and its cf[10046] are NEVER touched.
+
+const HIDDEN_KEY_PREFIX = "hureport:hidden:";
+
+function getHiddenTickets(identifier: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY_PREFIX + identifier);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addHiddenTicket(identifier: string, ticketId: string): void {
+  const current = getHiddenTickets(identifier);
+  if (!current.includes(ticketId)) {
+    current.push(ticketId);
+    localStorage.setItem(HIDDEN_KEY_PREFIX + identifier, JSON.stringify(current));
+  }
+}
+
 /**
  * Strips the "[Platform] Module | " prefix from new-format Jira summaries so
  * community / platform details never leak into the admin-facing card UI.
@@ -104,9 +128,20 @@ export function MyReportsTab({
   const [sending, setSending] = useState(false);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
-  // State for remove-from-history (phase 5)
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  // State for remove-from-history — local-only, no Jira side effects
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+
+  // Stable key for localStorage: prefer adminEmail, fall back to communityName
+  const storageKey = adminEmail || communityName || "default";
+
+  // Set of ticket IDs hidden by this admin (persisted in localStorage)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  // Hydrate from localStorage after mount (avoids SSR/hydration mismatch)
+  useEffect(() => {
+    setHiddenIds(new Set(getHiddenTickets(storageKey)));
+    // storageKey is stable per session — intentionally run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
@@ -215,25 +250,11 @@ export function MyReportsTab({
     }
   };
 
-  const handleRemoveFromHistory = async (ticket: TicketResponse) => {
-    setRemovingId(ticket.id);
-    try {
-      await fetch(`/api/tickets/${ticket.commentRef}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          adminCommunity: communityName,
-          adminEmail: adminEmail ?? "",
-          friendlyStatus: ticket.status,
-        }),
-      });
-      setTickets((prev) => prev.filter((t) => t.id !== ticket.id));
-      setRemoveConfirmId(null);
-    } catch {
-      /* ignore */
-    } finally {
-      setRemovingId(null);
-    }
+  // Local-only hide: writes to localStorage, re-renders immediately, never touches Jira.
+  const handleRemoveFromHistory = (ticket: TicketResponse) => {
+    addHiddenTicket(storageKey, ticket.id);
+    setHiddenIds((prev) => new Set([...prev, ticket.id]));
+    setRemoveConfirmId(null);
   };
 
   if (loading) {
@@ -260,6 +281,21 @@ export function MyReportsTab({
     );
   }
 
+  // Apply local hide filter before rendering
+  const visibleTickets = tickets.filter((t) => !hiddenIds.has(t.id));
+
+  if (!loading && visibleTickets.length === 0 && tickets.length > 0) {
+    // All tickets hidden locally — show same empty state
+    return (
+      <div className="flex flex-col items-center justify-center h-48 gap-3 text-center px-4">
+        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+          <CheckCircle className="w-6 h-6 text-gray-400" />
+        </div>
+        <p className="text-sm text-gray-500">{t("reports.empty", lang)}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {/* Refresh indicator */}
@@ -270,7 +306,7 @@ export function MyReportsTab({
         </div>
       )}
 
-      {tickets.map((ticket) => {
+      {visibleTickets.map((ticket) => {
         const isExpanded = expandedId === ticket.id;
         const isAddingInfo = addInfoId === ticket.id;
         const wasSent = sentIds.has(ticket.id);
@@ -428,20 +464,15 @@ export function MyReportsTab({
                         <button
                           type="button"
                           onClick={() => handleRemoveFromHistory(ticket)}
-                          disabled={removingId === ticket.id}
-                          className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
+                          className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-medium hover:bg-red-600 transition-colors"
                         >
-                          {removingId === ticket.id ? (
-                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : lang === "es" ? (
-                            "Sí, quitar"
-                          ) : lang === "pt" ? (
-                            "Sim, remover"
-                          ) : lang === "fr" ? (
-                            "Oui, retirer"
-                          ) : (
-                            "Yes, remove"
-                          )}
+                          {lang === "es"
+                            ? "Sí, quitar"
+                            : lang === "pt"
+                            ? "Sim, remover"
+                            : lang === "fr"
+                            ? "Oui, retirer"
+                            : "Yes, remove"}
                         </button>
                         <button
                           type="button"
