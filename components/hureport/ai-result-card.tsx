@@ -354,9 +354,12 @@ export function AiResultCard({ result, lang, onReportAnother }: Props) {
         </div>
       )}
 
-      {/* ── Help Center link (public only — whitelist enforced client-side too) ── */}
+      {/* ── Help Center link — only for self-solvable classifications ── */}
       {result.helpCenterLink &&
-        /^https?:\/\/([\w-]+\.)*help\.humand\.co(\/|$)/i.test(result.helpCenterLink) && (
+        /^https?:\/\/([\w-]+\.)*help\.humand\.co(\/|$)/i.test(result.helpCenterLink) &&
+        (["configuration_error", "expected_behavior", "needs_more_info", "cache_browser"] as const).includes(
+          result.classification as "configuration_error" | "expected_behavior" | "needs_more_info" | "cache_browser"
+        ) && (
           <a
             href={result.helpCenterLink}
             target="_blank"
