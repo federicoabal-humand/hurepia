@@ -365,7 +365,7 @@ export function MyReportsTab({
               <span className="text-xs font-semibold text-primary whitespace-nowrap">
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
-              <span className="flex-1 text-sm text-gray-800 truncate">{shortSummaryForList(ticket.summary)}</span>
+              <span className="flex-1 text-sm text-gray-800 line-clamp-2">{shortSummaryForList(ticket.summary)}</span>
               <span
                 className={cn(
                   "flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium",
