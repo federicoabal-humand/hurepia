@@ -169,7 +169,7 @@ export const MODULES = [
 
 export type Module = (typeof MODULES)[number];
 
-export const PLATFORMS = ["admin_web", "web_app", "mobile_app", "api"] as const;
+export const PLATFORMS = ["admin_web", "web_app", "mobile_app", "kiosk", "api"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 export type Classification =

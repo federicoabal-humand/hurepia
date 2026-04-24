@@ -202,12 +202,19 @@ export function formatJiraSummary(params: {
   moduleSlug: string;
   whatHappened: string;
 }): string {
-  // 1. Platform — Admin > Web > Mobile
+  // 1. Platform — Admin > Web > Mobile > Kiosk > API > first value
   const lower = params.platforms.map((p) => p.toLowerCase());
-  const hasAdmin = lower.some((p) => p.includes("admin"));
-  const hasWeb = lower.some((p) => p === "web");
+  const hasAdmin  = lower.some((p) => p.includes("admin"));
+  const hasWeb    = lower.some((p) => p === "web" || p === "web_app");
   const hasMobile = lower.some((p) => p.includes("mobile") || p.includes("app móvil") || p.includes("app movil"));
-  const platform = hasAdmin ? "Admin" : hasWeb ? "Web" : hasMobile ? "Mobile" : "Web";
+  const hasKiosk  = lower.some((p) => p === "kiosk");
+  const hasApi    = lower.some((p) => p === "api");
+  const platform  = hasAdmin  ? "Admin"
+    : hasWeb    ? "Web"
+    : hasMobile ? "Mobile"
+    : hasKiosk  ? "Kiosk"
+    : hasApi    ? "API"
+    : (params.platforms[0] ?? "Web");
 
   // 2. Module name
   const moduleName =

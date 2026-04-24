@@ -159,6 +159,7 @@ const TRANSLATIONS = {
     "platform.admin_web": "Admin Web",
     "platform.web_app": "Web App",
     "platform.mobile_app": "Mobile App",
+    "platform.kiosk": "Kiosk",
     "platform.api": "API",
 
     // Community Gate
@@ -361,6 +362,7 @@ const TRANSLATIONS = {
     "platform.admin_web": "Admin Web",
     "platform.web_app": "Web App",
     "platform.mobile_app": "Mobile App",
+    "platform.kiosk": "Kiosk",
     "platform.api": "API",
 
     // Community Gate
@@ -561,6 +563,7 @@ const TRANSLATIONS = {
     "platform.admin_web": "Admin Web",
     "platform.web_app": "Web App",
     "platform.mobile_app": "App Mobile",
+    "platform.kiosk": "Kiosk",
     "platform.api": "API",
 
     // Community Gate
@@ -761,6 +764,7 @@ const TRANSLATIONS = {
     "platform.admin_web": "Admin Web",
     "platform.web_app": "Web App",
     "platform.mobile_app": "App Mobile",
+    "platform.kiosk": "Kiosk",
     "platform.api": "API",
 
     // Community Gate
