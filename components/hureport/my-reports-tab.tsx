@@ -166,6 +166,9 @@ export function MyReportsTab({
         const ref = retryFreshRef ?? freshRef;
         if (ref) sp.set("freshRef", ref);
 
+        // Pass the current UI language so the server translates summaries accordingly
+        sp.set("language", lang);
+
         const res = await fetch(`/api/reports?${sp.toString()}`);
         const data: TicketResponse[] = await res.json();
         if (mountedRef.current) setTickets(data);
@@ -178,7 +181,7 @@ export function MyReportsTab({
         }
       }
     },
-    [communityName, instanceId, adminEmail, freshRef]
+    [communityName, instanceId, adminEmail, freshRef, lang]
   );
 
   // When a fresh ticket ref arrives, trigger an immediate refresh
