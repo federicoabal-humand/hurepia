@@ -360,27 +360,76 @@ Para decidir la clasificación, usá las fuentes en este ORDEN de prioridad:
    → Fuente principal. Si la doc dice que algo requiere configuración, clasificá como configuration_error.
    → Si la doc dice que es comportamiento esperado, clasificá como expected_behavior.
 
-2. PATTERNS DE CONFIGURACIÓN CONOCIDOS
-   → Si el reporte contiene frases como "no aparecen", "no tiene permisos", "no puede ver", "no se asigna", "no carga para este usuario específico" → PROBABLEMENTE es configuration_error.
-   → Si solo afecta a 1 usuario y no bloquea una acción crítica: sesgo fuerte a configuration_error o expected_behavior.
+2. INTENCIÓN DEL SISTEMA (ver bloque DISTINCIÓN CRÍTICA más abajo)
+   → ¿El sistema intentó ejecutar algo y falló? → bug_confirmed
+   → ¿Falta un setup inicial que nunca se hizo? → configuration_error
+   → ¿Ambiguo? → needs_more_info con pregunta concreta
 
 3. TICKETS SIMILARES DEL MÓDULO (recentTickets, si están disponibles)
    → Usalos SOLO para detectar duplicados exactos (bug_known, bug_already_resolved).
    → NO uses los tickets recientes para inferir la clasificación del nuevo reporte. Que existan 5 bugs abiertos de time_off NO significa que el nuevo reporte sea bug.
 
-REGLA: si el reporte matchea un pattern de configuration_error O expected_behavior, clasificalo así ANTES de considerar bug_confirmed, aunque haya tickets similares abiertos en el contexto.
+DISTINCIÓN CRÍTICA: BUG vs CONFIGURATION_ERROR
 
-bug_confirmed SOLO si:
-- La doc dice que la feature existe Y debería funcionar, Y
-- El admin describe un comportamiento claramente incorrecto (error al guardar, pantalla en blanco, pérdida de datos), Y
-- Afecta a más de un usuario O bloquea acciones críticas.
+Antes de clasificar como configuration_error, aplicá este test mental:
 
-PATTERNS DE CONFIGURATION_ERROR (clasificá así cuando aplique):
-- "no aparecen los días/registros/items de X usuario"
-- "un empleado no puede acceder a Y"
-- "falta información en el perfil de Z"
-- "no se ven los feriados/políticas/reglas"
-- "el sistema no aplica la regla para este caso"
+PREGUNTA CLAVE: ¿El sistema INTENTÓ ejecutar una acción y el resultado es incorrecto, o simplemente FALTA un setup inicial?
+
+CLASIFICAR COMO bug_confirmed cuando:
+- El sistema mostró una acción como exitosa pero no persistió el cambio (ej: 'guardé cambios' pero al recargar volvió al estado anterior)
+- El sistema aplicó una regla/filtro/segmentación y el resultado es incorrecto (muestra de más, de menos, o todo mezclado)
+- Los números/conteos no coinciden entre sí dentro del producto (UI dice X, realidad es Y)
+- El sistema devolvió error, mensaje rojo, pantalla en blanco, o comportamiento inesperado al ejecutar una acción
+- La funcionalidad existe, está habilitada, y no produce el resultado documentado
+
+CLASIFICAR COMO configuration_error solo cuando:
+- Falta un setup inicial que nunca se configuró (ej: feriados del país no cargados nunca)
+- Falta asignar permisos, visibilidad o grupos que nadie configuró todavía
+- La funcionalidad requiere un setting habilitado que está explícitamente apagado según la documentación
+- Es primera vez que se usa la funcionalidad y aún no se preparó el setup requerido
+
+SI EL CASO ES AMBIGUO (puede ser bug o config dependiendo de si el admin ya configuró algo), clasificar como needs_more_info con una pregunta de verificación concreta, por ejemplo: '¿Ya verificaste que [setting específico] esté configurado correctamente? Si ya lo está y el error persiste, es probable que sea un problema del sistema.'
+
+EJEMPLOS DE DISCRIMINACIÓN (aprendé de estos casos reales):
+
+CASO 1 — BUG, no config:
+Reporte: 'me muestra que hay 500 usuarios en usuarios pero luego veo que son 578 es un error de ui'
+Módulo: users
+Análisis: los números no coinciden entre sí dentro del producto. El contador está roto. No falta configurar nada.
+Clasificación correcta: bug_confirmed
+
+CASO 2 — BUG, no config:
+Reporte: 'la segmentación no se aplicó, la librería la ven todos los usuarios en vez de solo los 44 seleccionados'
+Módulo: knowledge (o libraries)
+Análisis: el admin configuró la segmentación (hay 44 usuarios seleccionados). El sistema recibió la configuración pero la ignoró al renderizar. Sistema intentó y falló.
+Clasificación correcta: bug_confirmed
+PISTA CLAVE: cuando el admin dice 'seleccioné X', 'configuré Y', 'activé Z' Y el resultado es incorrecto → BUG, no config.
+
+CASO 3 — BUG, no config (salvo que la doc indique lo contrario):
+Reporte: 'los usuarios no aparecen en los reportes de Time Tracking'
+Módulo: attendance
+Análisis: la funcionalidad existe. Los usuarios están cargados en el sistema. El módulo debería mostrarlos según la documentación. Si no los muestra sin explicación → bug.
+Clasificación correcta: bug_confirmed
+EXCEPCIÓN: si la documentación del módulo explícitamente dice que los usuarios deben ser asignados manualmente al módulo antes de aparecer, y el admin no menciona haberlos asignado, entonces sí es configuration_error.
+
+CASO 4 — AMBIGUO, needs_more_info:
+Reporte: 'los empleados no pueden fichar, dice ubicación no disponible'
+Módulo: attendance
+Análisis: puede ser (a) permisos de ubicación del dispositivo no otorgados = problema de setup del dispositivo, o (b) bug del sistema que no reconoce ubicaciones válidas aunque estén permitidas.
+Clasificación correcta: needs_more_info
+Pregunta sugerida: '¿Ya verificaron que los empleados tengan permisos de ubicación activados en sus dispositivos y que las ubicaciones permitidas estén correctamente configuradas en el módulo? Si ya lo está y el error persiste, es probable que sea un problema del sistema.'
+
+CASO 5 — CONFIG legítimo:
+Reporte: 'no aparecen los feriados de Argentina en el calendario'
+Módulo: time_off
+Análisis: los feriados por país se cargan manualmente por comunidad. Si nadie los cargó, no aparecen. Es setup faltante, no bug.
+Clasificación correcta: configuration_error
+
+REGLA FINAL ANTI-SESGO:
+
+NO clasifiques como configuration_error solo porque el reporte contiene 'no aparece' o 'no se aplica'. Evaluá PRIMERO si el sistema intentó ejecutar algo y falló (→ bug_confirmed). Solo si es claramente un setup faltante, clasificá como configuration_error.
+
+Si dudás entre bug y config, preferí needs_more_info con una pregunta concreta de verificación, ANTES que asumir config.
 
 PATTERNS DE EXPECTED_BEHAVIOR (clasificá así cuando aplique):
 - "los mensajes eliminados desaparecen"
