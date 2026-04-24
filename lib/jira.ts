@@ -60,6 +60,47 @@ export function sanitizeLabelValue(name: string): string {
     .slice(0, 100);
 }
 
+/**
+ * Technical label prefixes — never normalize these.
+ * Examples: instanceId_198356, QA_BATTERY_01, CI-Mock, module-xxx
+ */
+const TECHNICAL_PREFIXES = ["instanceid_", "qa_", "ci-", "ci_", "module-", "module_"];
+
+function isTechnicalLabel(label: string): boolean {
+  const lower = label.toLowerCase();
+  return TECHNICAL_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+/**
+ * Normalize a community name to Humand TitleCase convention.
+ *
+ * "Nike_Argentina"   → "NikeArgentina"
+ * "nike argentina"   → "NikeArgentina"
+ * "GrupoCayalá"      → "GrupoCayalá"   (already correct)
+ * "WMM Solutions"    → "WMMSolutions"  (all-caps words preserved)
+ * "instanceId_1234"  → "instanceId_1234" (technical label, untouched)
+ *
+ * Run AFTER sanitizeLabelValue() so spaces have already been converted to
+ * underscores before the split.
+ */
+export function normalizeCommunityForAffectedClients(label: string): string {
+  if (!label) return label;
+  if (isTechnicalLabel(label)) return label;
+
+  const words = label.split(/[\s_\-]+/).filter(Boolean);
+  return words
+    .map((word) => {
+      if (!word) return "";
+      // All-caps word with ≥2 chars (e.g. "WMM", "BMW") — preserve as-is
+      if (word.length >= 2 && word === word.toUpperCase() && /^[A-Z]+$/.test(word)) {
+        return word;
+      }
+      // Uppercase first char, keep rest unchanged (preserves tildes, ñ, etc.)
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join("");
+}
+
 // ─── In-memory cache for recent module tickets ─────────────────────────────────
 const recentTicketsCache = new Map<string, { data: RecentModuleTicket[]; ts: number }>();
 const RECENT_CACHE_TTL = 5 * 60 * 1000; // 5 min
@@ -226,7 +267,7 @@ export async function createJiraIssue(
 
   const miniAppId = MODULE_TO_JIRA_ID[input.module];
   const communityLabel = input.communityName.trim()
-    ? sanitizeLabelValue(input.communityName)
+    ? normalizeCommunityForAffectedClients(sanitizeLabelValue(input.communityName))
     : null;
 
   // Build labels array: community name + optional instanceId tag
@@ -333,7 +374,7 @@ export async function searchIssuesForCommunity(
     const safeEmail = p.adminEmail.replace(/"/g, '\\"');
     jqlParts.push(`reporter = "${safeEmail}"`);
   } else if (p.communityName?.trim()) {
-    const safe = sanitizeLabelValue(p.communityName).replace(/"/g, '\\"');
+    const safe = normalizeCommunityForAffectedClients(sanitizeLabelValue(p.communityName)).replace(/"/g, '\\"');
     // customfield_10046 is a labels field; = does exact-value match against any element
     jqlParts.push(`cf[10046] = "${safe}"`);
   } else {
@@ -414,7 +455,7 @@ export async function searchAllIssuesForCommunity(
     const safeEmail = params.adminEmail.replace(/"/g, '\\"');
     jqlParts.push(`reporter = "${safeEmail}"`);
   } else if (params.communityName?.trim()) {
-    const safe = sanitizeLabelValue(params.communityName).replace(/"/g, '\\"');
+    const safe = normalizeCommunityForAffectedClients(sanitizeLabelValue(params.communityName)).replace(/"/g, '\\"');
     jqlParts.push(`cf[10046] = "${safe}"`);
   } else {
     return [];
@@ -621,12 +662,14 @@ export async function addCommunityToAffectedClients(
     const currentRaw = data.fields?.[JIRA.FIELDS.AFFECTED_CLIENTS];
     const currentArr: string[] = parseAffectedClients(currentRaw);
 
-    // Already present? (case-insensitive)
-    if (currentArr.some((c) => c.toLowerCase() === communityToAdd.toLowerCase())) return true;
+    // Normalize before comparing so "Nike_Argentina" and "NikeArgentina" are treated as the same
+    const normalizedToAdd = normalizeCommunityForAffectedClients(sanitizeLabelValue(communityToAdd));
+    if (currentArr.some(
+      (c) => normalizeCommunityForAffectedClients(sanitizeLabelValue(c)) === normalizedToAdd
+    )) return true;
 
-    const sanitized = sanitizeLabelValue(communityToAdd);
     // labels field: use update/add syntax
-    const body = { update: { [JIRA.FIELDS.AFFECTED_CLIENTS]: [{ add: sanitized }] } };
+    const body = { update: { [JIRA.FIELDS.AFFECTED_CLIENTS]: [{ add: normalizedToAdd }] } };
     const putRes = await fetch(`${base()}/rest/api/3/issue/${jiraKey}`, {
       method: "PUT",
       headers: headers(),
@@ -658,7 +701,11 @@ export async function removeCommunityFromAffectedClients(
     const currentRaw = data.fields?.[JIRA.FIELDS.AFFECTED_CLIENTS];
     const currentArr: string[] = parseAffectedClients(currentRaw);
 
-    const match = currentArr.find((c) => c.toLowerCase() === communityToRemove.toLowerCase());
+    // Normalize both sides so "Nike_Argentina" (old format) still finds "NikeArgentina" (new format)
+    const normalizedToRemove = normalizeCommunityForAffectedClients(sanitizeLabelValue(communityToRemove));
+    const match = currentArr.find(
+      (c) => normalizeCommunityForAffectedClients(sanitizeLabelValue(c)) === normalizedToRemove
+    );
     if (!match) return true; // already not there
 
     const body = { update: { [JIRA.FIELDS.AFFECTED_CLIENTS]: [{ remove: match }] } };
