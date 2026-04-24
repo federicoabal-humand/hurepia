@@ -70,6 +70,23 @@ const CLASSIFICATION_ICON: Record<Classification, React.ElementType> = {
 
 const POLL_INTERVAL_MS = 30_000;
 
+/**
+ * Strips the "[Platform] Module | " prefix from new-format Jira summaries so
+ * community / platform details never leak into the admin-facing card UI.
+ *
+ * "[Admin] Users | No puedo eliminar usuarios"  →  "No puedo eliminar usuarios"
+ * "Old format without pipe"                      →  "Old format without pipe" (unchanged)
+ */
+function cleanSummaryForDisplay(text: string | undefined): string {
+  if (!text) return "";
+  // New format starts with "[X] ... | description"
+  const pipeIdx = text.indexOf(" | ");
+  if (pipeIdx !== -1 && text.startsWith("[")) {
+    return text.slice(pipeIdx + 3).trim();
+  }
+  return text;
+}
+
 export function MyReportsTab({
   lang,
   communityName,
@@ -271,7 +288,7 @@ export function MyReportsTab({
               <span className="text-xs font-semibold text-primary whitespace-nowrap">
                 {t("reports.ticket", lang)}-{ticket.ticketNumber}
               </span>
-              <span className="flex-1 text-sm text-gray-800 truncate">{ticket.summary}</span>
+              <span className="flex-1 text-sm text-gray-800 truncate">{cleanSummaryForDisplay(ticket.summary)}</span>
               <span
                 className={cn(
                   "flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium",
@@ -316,7 +333,7 @@ export function MyReportsTab({
                   ))}
                 </div>
 
-                <p className="text-sm text-gray-700 leading-relaxed">{ticket.description}</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{cleanSummaryForDisplay(ticket.description)}</p>
 
                 {(ticket.evidenceUrls ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-2">
