@@ -327,7 +327,7 @@ Mapa de keywords canónicas por módulo:
 - service_management → 'canales de consulta'
 - (otros módulos) → nombre del módulo en español + 'configuracion'
 
-Opcionalmente sumá 1-2 keywords del concepto específico SOLO si son términos Humand canónicos (no palabras del admin).
+Usá EXACTAMENTE los keywords del mapa para el módulo. NO añadas palabras del reporte del admin, ni siquiera si parecen relevantes técnicamente. Si el concepto específico tiene un término Humand canónico (ej: "permisos", "politica", "segmentacion"), podés sumarlo — pero SOLO si no aparece en el texto del reporte del admin.
 
 EJEMPLOS:
 Reporte: 'no aparecen los feriados de Argentina'
