@@ -534,7 +534,7 @@ Classifications (for action="classify"):
 - cache_browser: Typical session/browser issue (logout, incognito, clear cache, switch browser).
 - expected_behavior: The platform works as designed. Explain what the admin CAN do instead. Only include help_center_link if a real public help.humand.co article exists.
 - needs_more_info: Only if a specific technical detail is missing that changes the classification.
-- feature_request: Admin is requesting a new feature or enhancement, not reporting a defect.
+- feature_request: Admin is requesting a new feature or enhancement, not reporting a defect. KEY SIGNALS: phrases like "me gustaría poder", "sería útil poder", "¿pueden agregar", "I'd like to be able to", "would be useful", "could you add" — these are ALWAYS feature_request, even if the feature already exists elsewhere in the platform. When in doubt between expected_behavior and feature_request, prefer feature_request if the admin uses desire/wish language.
 - bug_known: ONLY use if the admin's report matches an OPEN ticket in the recent tickets list above (status != resolved). Explain we are working on it. Do NOT create a duplicate ticket.
 - bug_already_resolved: ONLY use if the admin's report matches a RESOLVED ticket from the last 30 days. Tell admin to refresh/update. Do NOT create a new ticket.
 
